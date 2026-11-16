@@ -17,6 +17,9 @@ export const DRUM = {
   highTom: 50,
   crash: 49,
   ride: 51,
+  clap: 39,
+  /** 上がっていく効果音(GMでは High Q。このアプリでは雑音が高くなっていく音にする) */
+  riser: 27,
 };
 
 const S = 120;

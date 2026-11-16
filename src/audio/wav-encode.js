@@ -3,7 +3,7 @@
 /**
  * @param {Float32Array[]} channels チャンネルごとのデータ(長さは同じ)
  * @param {number} sampleRate
- * @returns {Uint8Array}
+ * @returns {Uint8Array<ArrayBuffer>}
  */
 export function encodeWav(channels, sampleRate) {
   const numCh = channels.length;

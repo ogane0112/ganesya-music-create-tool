@@ -10,6 +10,7 @@ import { INSTRUMENTS } from '../core/catalog.js';
 import { songDurationSeconds } from '../core/timeline.js';
 import { validateSong } from '../core/validate.js';
 import { Player } from '../audio/player.js';
+import { renderSongToWav } from '../audio/offline.js';
 import { h, replace } from './dom.js';
 
 /** @typedef {import('../core/types.js').Song} Song */
@@ -55,7 +56,7 @@ export function mountPrototype(root) {
       render();
     }
     const playBtn = root.querySelector('[data-role="play-all"]');
-    if (playBtn) playBtn.textContent = s.playing && !auditioning ? '■ 止める' : '▶ 全体を聴く';
+    if (playBtn) playBtn.textContent = s.preparing ? '準備中…' : s.playing && !auditioning ? '■ 止める' : '▶ 全体を聴く';
   });
 
   /**
@@ -142,6 +143,7 @@ export function mountPrototype(root) {
           h('p', { class: 'muted' }, `${MOODS.find((m) => m.id === song.mood)?.label ?? ''}・${formatSeconds(duration)}`),
         ),
         h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'secondary', onClick: (/** @type {Event} */ e) => saveWav(song, /** @type {HTMLButtonElement} */ (e.currentTarget)) }, 'WAVで保存'),
           h('button', { type: 'button', class: 'secondary', onClick: newSong }, '新しく作る'),
         ),
       ),
@@ -311,6 +313,32 @@ export function mountPrototype(root) {
     altPanel = null;
     auditioning = null;
     render();
+  }
+
+  /**
+   * 曲をWAVにしてダウンロードする(S6の試作)
+   * @param {Song} song
+   * @param {HTMLButtonElement} button
+   */
+  async function saveWav(song, button) {
+    button.disabled = true;
+    button.textContent = '音を用意しています…';
+    try {
+      const bytes = await renderSongToWav(song, {
+        onProgress: (done, total) => { button.textContent = `音を用意しています… ${Math.round((done / total) * 100)}%`; },
+      });
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
+      const a = h('a', { href: url, download: `${song.meta.title}.wav` });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) {
+      showError({ code: 'export_failed', message: 'WAVを作れませんでした', hint: 'もう一度試してください。続く場合はページを読み込み直してください' });
+    } finally {
+      button.disabled = false;
+      button.textContent = 'WAVで保存';
+    }
   }
 
   function newSong() {

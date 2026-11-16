@@ -281,12 +281,34 @@ const drums = def('drums', (ctx, out) => {
   };
 
   return {
-    play({ time: t, pitch, velocity: v }) {
+    play({ time: t, duration, pitch, velocity: v }) {
       switch (pitch) {
+        case 27: { // 上がっていく効果音
+          const src = ctx.createBufferSource();
+          src.buffer = noise;
+          src.loop = true;
+          const f = ctx.createBiquadFilter();
+          f.type = 'bandpass';
+          f.Q.value = 3;
+          f.frequency.setValueAtTime(300, t);
+          f.frequency.exponentialRampToValueAtTime(9000, t + duration);
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(velGain(v) * 0.9, t + duration);
+          g.gain.setTargetAtTime(0.0001, t + duration, 0.02);
+          src.connect(f).connect(g).connect(bus);
+          src.start(t);
+          src.stop(t + duration + 0.15);
+          break;
+        }
+        case 39: // 手拍子:短い雑音を3回重ねる
+          for (const d of [0, 0.011, 0.022]) noiseHit(t + d, v, { type: 'bandpass', freq: 1400, q: 1.2, decay: d === 0.022 ? 0.18 : 0.02, gain: 1.1 });
+          break;
         case 35:
         case 36: // バスドラム
-          toneHit(t, v, { from: 160, to: 45, sweep: 0.12, decay: 0.45, gain: 1.4 });
-          noiseHit(t, v, { type: 'lowpass', freq: 3000, decay: 0.015, gain: 0.25 });
+          toneHit(t, v, { from: 190, to: 48, sweep: 0.09, decay: 0.5, gain: 1.5 });
+          toneHit(t, v, { from: 1800, to: 300, sweep: 0.012, decay: 0.012, gain: 0.35, type: 'triangle' });
+          noiseHit(t, v, { type: 'lowpass', freq: 4000, decay: 0.012, gain: 0.3 });
           break;
         case 37: // サイドスティック
           noiseHit(t, v, { type: 'bandpass', freq: 2200, q: 4, decay: 0.05, gain: 1.6 });

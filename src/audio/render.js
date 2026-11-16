@@ -1,28 +1,31 @@
 // 曲をオーディオの部品につなぐ共通処理。再生(AudioContext)とWAV書き出し(OfflineAudioContext)で使う。
 // パートごとに: 楽器 → うねり(sidechain) → 音量 → 左右 → 全体。さらに残響(リバーブ)へ少し送る。
-import { getInstrument } from './instruments/index.js';
+import { cachedVoice } from './note-cache.js';
 
 /** @typedef {import('../core/types.js').Song} Song */
 /** @typedef {import('../core/types.js').TrackRole} TrackRole */
 
 /** 役割ごとの左右の位置と残響の量 */
-const ROLE_MIX = /** @type {Record<TrackRole, { pan: number, reverb: number }>} */ ({
-  vocal: { pan: 0, reverb: 0.22 },
-  chords: { pan: -0.3, reverb: 0.18 },
-  bass: { pan: 0, reverb: 0 },
-  drums: { pan: 0, reverb: 0.06 },
-  pad: { pan: 0.25, reverb: 0.35 },
-  lead: { pan: 0.3, reverb: 0.25 },
-  other: { pan: 0, reverb: 0.15 },
+const ROLE_MIX = /** @type {Record<TrackRole, { pan: number, reverb: number, delay: number }>} */ ({
+  vocal: { pan: 0, reverb: 0.22, delay: 0.16 },
+  chords: { pan: -0.3, reverb: 0.18, delay: 0 },
+  bass: { pan: 0, reverb: 0, delay: 0 },
+  drums: { pan: 0, reverb: 0.06, delay: 0 },
+  pad: { pan: 0.25, reverb: 0.35, delay: 0 },
+  lead: { pan: 0.3, reverb: 0.25, delay: 0.14 },
+  other: { pan: -0.2, reverb: 0.3, delay: 0.22 },
 });
 
-const KICKS = new Set([35, 36]);
+export const KICKS = new Set([35, 36]);
+/** うねり:バスドラムの瞬間にこの音量まで下げ、少し待ってから戻す */
+export const DUCK = { depth: 0.25, hold: 0.03, recover: 0.07 };
 
 /**
  * @typedef {object} TrackBus
  * @property {GainNode} gain 音量
  * @property {GainNode} duck うねり用
  * @property {import('./instruments/index.js').InstrumentVoice} voice
+ * @property {StereoPannerNode} pan
  * @property {string} instrument
  * @property {boolean} sidechain
  * @property {boolean} isDrums
@@ -65,23 +68,54 @@ function impulseResponse(ctx) {
  * @param {BaseAudioContext} ctx
  * @param {Song} song
  * @param {AudioNode} destination
+ * @param {{ voices?: boolean }} [opts] voices=false なら楽器を用意しない(音を外で足し合わせる時)
  * @returns {MixBus}
  */
-export function createMix(ctx, song, destination) {
+export function createMix(ctx, song, destination, opts = {}) {
+  const withVoices = opts.voices !== false;
   const master = ctx.createGain();
-  master.gain.value = 0.62;
+  master.gain.value = 0.55;
   const comp = ctx.createDynamicsCompressor();
   comp.threshold.value = -14;
   comp.ratio.value = 4;
   comp.attack.value = 0.005;
   comp.release.value = 0.2;
-  master.connect(comp).connect(destination);
+  // 最後に天井を作り、音が割れないようにする(リミッター)
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -2;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.001;
+  limiter.release.value = 0.1;
+  master.connect(comp).connect(limiter).connect(destination);
 
   const reverb = ctx.createConvolver();
   reverb.buffer = impulseResponse(ctx);
   const reverbReturn = ctx.createGain();
   reverbReturn.gain.value = 0.5;
   reverb.connect(reverbReturn).connect(master);
+
+  // 山びこ(ディレイ):付点8分で左右に跳ね返る
+  const beat = 60 / song.tempo;
+  const delayIn = ctx.createGain();
+  const delayL = ctx.createDelay(2);
+  const delayR = ctx.createDelay(2);
+  delayL.delayTime.value = beat * 0.75;
+  delayR.delayTime.value = beat * 0.75;
+  const feedback = ctx.createGain();
+  feedback.gain.value = 0.32;
+  const damp = ctx.createBiquadFilter();
+  damp.type = 'lowpass';
+  damp.frequency.value = 4500;
+  const panL = ctx.createStereoPanner();
+  panL.pan.value = -0.7;
+  const panR = ctx.createStereoPanner();
+  panR.pan.value = 0.7;
+  delayIn.connect(delayL);
+  delayL.connect(panL).connect(master);
+  delayL.connect(delayR);
+  delayR.connect(panR).connect(master);
+  delayR.connect(damp).connect(feedback).connect(delayL);
 
   /** @type {MixBus['tracks']} */
   const tracks = new Map();
@@ -98,9 +132,14 @@ export function createMix(ctx, song, destination) {
       send.gain.value = role.reverb;
       pan.connect(send).connect(reverb);
     }
+    if (role.delay > 0) {
+      const send = ctx.createGain();
+      send.gain.value = role.delay;
+      pan.connect(send).connect(delayIn);
+    }
     tracks.set(t.id, {
-      gain, duck,
-      voice: getInstrument(t.instrument).setup(ctx, duck),
+      gain, duck, pan,
+      voice: withVoices ? cachedVoice(t.instrument, ctx, duck) : { play() {} },
       instrument: t.instrument,
       sidechain: !!t.sidechain,
       isDrums: t.role === 'drums',
@@ -125,8 +164,8 @@ export function playNote(mix, trackId, note) {
       if (!t.sidechain) continue;
       const g = t.duck.gain;
       g.cancelScheduledValues(note.time);
-      g.setValueAtTime(0.25, note.time);
-      g.setTargetAtTime(1, note.time + 0.03, 0.07);
+      g.setValueAtTime(DUCK.depth, note.time);
+      g.setTargetAtTime(1, note.time + DUCK.hold, DUCK.recover);
     }
   }
 }
@@ -154,7 +193,7 @@ export function updateMix(ctx, mix, song) {
     if (!entry) continue;
     entry.gain.gain.setTargetAtTime(trackGain(song, t.id), ctx.currentTime, 0.02);
     if (entry.instrument !== t.instrument) {
-      entry.voice = getInstrument(t.instrument).setup(ctx, entry.duck);
+      entry.voice = cachedVoice(t.instrument, ctx, entry.duck);
       entry.instrument = t.instrument;
     }
   }

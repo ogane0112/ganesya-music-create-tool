@@ -2,6 +2,7 @@
 import { buildTimeline } from '../core/timeline.js';
 import { ticksToSeconds } from '../core/theory.js';
 import { createMix, playNote, updateMix } from './render.js';
+import { prepareSong } from './note-cache.js';
 
 /** @typedef {import('../core/types.js').Song} Song */
 
@@ -18,6 +19,7 @@ const START_DELAY = 0.06;
 /**
  * @typedef {object} PlayerState
  * @property {boolean} playing
+ * @property {boolean} [preparing] 音を用意している途中
  * @property {number} positionSeconds 再生範囲の頭からの秒
  * @property {string | null} itemId 今鳴っている部品
  */
@@ -41,6 +43,8 @@ export class Player {
     this.listeners = new Set();
     /** @type {number | null} */
     this.raf = null;
+    this.preparing = false;
+    this.playId = 0;
   }
 
   /** ユーザーの操作の中で呼ぶ(iPad の Safari は操作なしでは音を出せない) */
@@ -60,7 +64,17 @@ export class Player {
    */
   async play(song, opts = {}) {
     this.stop();
+    const id = ++this.playId;
     const ctx = await this.ensureContext();
+    // 初めて鳴らす音を作り置きしてから始める(重い合成を再生中にしないため)
+    this.preparing = true;
+    this.emit();
+    try {
+      await prepareSong(song, ctx.sampleRate, { itemIds: opts.itemIds });
+    } finally {
+      this.preparing = false;
+    }
+    if (id !== this.playId) return; // 用意している間に止められた・別の再生が始まった
     this.song = song;
     this.loop = !!opts.loop;
     this.timeline = buildTimeline(song, { itemIds: opts.itemIds });
@@ -80,6 +94,7 @@ export class Player {
   }
 
   stop() {
+    this.playId++;
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
     if (this.raf !== null) cancelAnimationFrame(this.raf);
@@ -123,7 +138,7 @@ export class Player {
   /** @returns {PlayerState} */
   state() {
     const { ctx, timeline, song } = this;
-    if (!this.playing || !ctx || !timeline || !song) return { playing: false, positionSeconds: 0, itemId: null };
+    if (!this.playing || !ctx || !timeline || !song) return { playing: false, preparing: this.preparing, positionSeconds: 0, itemId: null };
     const loopSeconds = ticksToSeconds(timeline.totalTicks, song.tempo);
     let pos = ctx.currentTime - this.startTime;
     if (pos < 0) pos += this.loop ? loopSeconds : 0;

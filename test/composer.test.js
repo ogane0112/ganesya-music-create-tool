@@ -62,6 +62,35 @@ describe('叩き台(B6)', () => {
   });
 });
 
+describe('編曲の起伏', () => {
+  it('Bメロの最後の1拍は歌以外が止まり、終わり2小節で効果音が上がる', () => {
+    for (const { id: mood } of MOODS) {
+      for (let seed = 1; seed <= 10; seed++) {
+        const s = unwrap(createDraftSong({ mood, tempo: 120, seed }));
+        const pre = s.sections.find((x) => x.kind === 'prechorus');
+        if (!pre) throw new Error('Bメロがない');
+        const end = pre.bars * 1920;
+        for (const [tid, notes] of Object.entries(pre.parts)) {
+          if (tid === 't1' || tid === 't4') continue;
+          for (const n of notes) expect(n.start + n.length).toBeLessThanOrEqual(end - 480);
+        }
+        expect(pre.parts.t4.some((n) => n.pitch === 27 && n.start === end - 2 * 1920)).toBe(true);
+      }
+    }
+  });
+  it('彩りのパートが、Aメロ・Bメロはメロディの合間に、サビは対旋律で鳴る', () => {
+    let fills = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      const s = unwrap(createDraftSong({ mood: 'setsunai', tempo: 92, seed }));
+      expect(s.tracks.find((t) => t.id === 't7')?.name).toBe('彩り');
+      const chorus = s.sections.find((x) => x.kind === 'chorus');
+      expect(chorus?.parts.t7.length).toBeGreaterThan(4);
+      fills += s.sections.filter((x) => x.kind !== 'chorus').reduce((a, x) => a + x.parts.t7.length, 0);
+    }
+    expect(fills).toBeGreaterThan(10);
+  });
+});
+
 describe('和風EDM', () => {
   it('イントロのリフ、四つ打ち、うねり、5音のメロディ、速いテンポ', () => {
     for (let seed = 1; seed <= 20; seed++) {
@@ -113,7 +142,8 @@ describe('別案(B7)', () => {
     const sec = song.sections[0];
     const [alt] = unwrap(generateAlternatives(song, sec.id, 'melody'));
     expect(alt.replacement.chords).toBeUndefined();
-    expect(Object.keys(alt.replacement.parts)).toEqual(['t1']);
+    // メロディと、メロディの合間を埋める彩りだけが変わる
+    expect(Object.keys(alt.replacement.parts).sort()).toEqual(['t1', 't7']);
   });
 
   it('伴奏の別案ではメロディとコード進行は変わらない', () => {

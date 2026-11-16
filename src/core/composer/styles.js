@@ -51,6 +51,7 @@ function prog(spec, beatsDefault = 4) {
  * @property {Record<'intro' | 'verse' | 'prechorus' | 'chorus', string[]>} [leadStyles] リフの弾き方(riff・arp・none)
  * @property {boolean} [sidechain] 和音・背景・リフをバスドラムに合わせてうねらせる(EDM)
  * @property {{ name: string, kind: SectionKind, bars: number }[]} [layout] 叩き台の部品の並び(省略時は Aメロ・Bメロ・サビ)
+ * @property {InstrumentId} colorInstrument 彩り(メロディの合間のフレーズ・サビの対旋律)の楽器
  * @property {[number, number]} [tempoRange] 雰囲気に合う速さ。選んだ速さがこれより遅ければ持ち上げる
  */
 
@@ -58,6 +59,7 @@ function prog(spec, beatsDefault = 4) {
 export const MOOD_STYLES = {
   // 切ない:王道進行(4-5-3-6)と小室進行(6-4-5-1)が中心。4和音多め、アルペジオ
   setsunai: {
+    colorInstrument: 'bell',
     modes: ['minor', 'minor', 'major'],
     tonics: ['A', 'B', 'C#', 'D', 'E', 'F#', 'G', 'C', 'Eb'],
     progressions: {
@@ -75,6 +77,7 @@ export const MOOD_STYLES = {
   },
   // 疾走感:速い8分のベースと16分のハイハット、裏で鳴るシンバル。歪んだギター
   shissou: {
+    colorInstrument: 'piano',
     modes: ['minor', 'major'],
     tonics: ['A', 'B', 'C#', 'D', 'E', 'F#', 'G', 'C', 'Eb'],
     progressions: {
@@ -92,6 +95,7 @@ export const MOOD_STYLES = {
   },
   // ダーク・不穏:暗いキーで6-4-5-6や6-2-3-6。低めの音域、重い拍、長い音
   dark: {
+    colorInstrument: 'strings',
     modes: ['minor'],
     tonics: ['A', 'B', 'C', 'C#', 'D', 'E', 'F#', 'G'],
     progressions: {
@@ -109,6 +113,7 @@ export const MOOD_STYLES = {
   },
   // 明るい・爽やか:1-5-6-4やカノン進行。弾むピアノとベース
   akarui: {
+    colorInstrument: 'bell',
     modes: ['major'],
     tonics: ['C', 'D', 'Eb', 'E', 'F', 'G', 'Ab', 'A', 'Bb'],
     progressions: {
@@ -126,6 +131,7 @@ export const MOOD_STYLES = {
   },
   // 和風EDM:速いテンポ、5音の節回しと16分のリフ、王道進行。四つ打ちとうねる厚いシンセ、サビ前の盛り上げ
   'wafu-edm': {
+    colorInstrument: 'bell',
     modes: ['minor'],
     tonics: ['C#', 'D', 'D#', 'E', 'F#', 'G', 'A', 'B'],
     progressions: {

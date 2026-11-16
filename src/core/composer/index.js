@@ -5,6 +5,7 @@ import { createRng, randomSeed } from '../random.js';
 import { ticksPerBar } from '../theory.js';
 import { generateBass, generateChordPart, generatePad } from './accompaniment.js';
 import { generateDrums } from './drums.js';
+import { applyEnergy, generateColor } from './arrange.js';
 import { generateLead } from './lead.js';
 import { generateMelody } from './melody.js';
 import { generateProgression } from './progressions.js';
@@ -37,6 +38,7 @@ export function tracksByRole(tracks) {
   return {
     melody: vocal ?? find('lead'),
     lead: vocal ? find('lead') : undefined,
+    color: find('other'),
     chords: find('chords'),
     bass: find('bass'),
     drums: find('drums'),
@@ -61,7 +63,7 @@ export function tracksByRole(tracks) {
  * @property {{ chordStyle: string, bassStyle: string, drumStyle: string, leadStyle: string }} styles どの弾き方を選んだか
  */
 
-/** @typedef {'melody' | 'chords' | 'bass' | 'drums' | 'pad' | 'lead'} Part */
+/** @typedef {'melody' | 'chords' | 'bass' | 'drums' | 'pad' | 'lead' | 'color'} Part */
 
 /**
  * 部品1つ分の中身を作る。keep に渡したもの(コード進行やメロディ)はそのまま使う
@@ -96,6 +98,8 @@ export function composeSection(ctx, rng, opts = {}) {
   const rDrums = rng.fork();
   const rPad = rng.fork();
   const rLead = rng.fork();
+  const rColor = rng.fork();
+  const rEnergy = rng.fork();
   // イントロは歌わない(リフが主役)
   if (roles.melody && want('melody') && isIntro) parts[roles.melody] = [];
   else if (roles.melody && want('melody')) {
@@ -107,6 +111,11 @@ export function composeSection(ctx, rng, opts = {}) {
   // 背景の持続音はAメロでは控えめに(半分の確率で鳴らさない)
   if (roles.pad && want('pad')) parts[roles.pad] = kind === 'verse' && rPad.chance(0.5) ? [] : generatePad({ ...common, chords, rng: rPad, style: '' });
   if (roles.lead && want('lead')) parts[roles.lead] = generateLead({ ...common, chords, rng: rLead, style: styles.leadStyle });
+  if (roles.color && want('color')) {
+    const melody = (roles.melody && parts[roles.melody]) || opts.melody || [];
+    parts[roles.color] = generateColor({ ...common, chords, melody, kind, isIntro, pentatonic: style.melodyScale === 'pentatonic', rng: rColor });
+  }
+  applyEnergy({ parts, roles, kind, isIntro, drumStyle: styles.drumStyle, bars: ctx.bars, timeSignature: ctx.timeSignature, rng: rEnergy });
   // 部品の終わりからはみ出す音を切る
   const end = ctx.bars * ticksPerBar(ctx.timeSignature);
   for (const [tid, notes] of Object.entries(parts)) {
@@ -150,6 +159,7 @@ export function generateDraft(input) {
     { id: 't4', role: 'drums', instrument: 'drums', volume: 0.7, name: 'ドラム' },
     { id: 't5', role: 'pad', instrument: style.instruments.pad, volume: 0.4, name: '背景' },
   ];
+  song.tracks.push({ id: 't7', role: 'other', instrument: style.colorInstrument, volume: 0.45, name: '彩り' });
   if (style.leadInstrument) song.tracks.push({ id: 't6', role: 'lead', instrument: style.leadInstrument, volume: 0.5, name: 'リフ' });
   if (style.sidechain) {
     for (const t of song.tracks) if (t.role === 'chords' || t.role === 'pad' || t.role === 'lead') t.sidechain = true;
