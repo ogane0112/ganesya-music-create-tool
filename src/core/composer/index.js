@@ -1,6 +1,6 @@
 // 叩き台と部品の中身を作るルール(B6)。
 import { createEmptySong } from '../song.js';
-import { createIdFactory } from '../ids.js';
+import { collectIds, createIdFactory } from '../ids.js';
 import { createRng, randomSeed } from '../random.js';
 import { ticksPerBar } from '../theory.js';
 import { generateBass, generateChordPart, generatePad } from './accompaniment.js';
@@ -101,7 +101,7 @@ export function composeSection(ctx, rng, opts = {}) {
   const rColor = rng.fork();
   const rEnergy = rng.fork();
   // イントロは歌わない(リフが主役)
-  if (roles.melody && want('melody') && isIntro) parts[roles.melody] = [];
+  if (roles.melody && want('melody') && isIntro && !opts.melody) parts[roles.melody] = [];
   else if (roles.melody && want('melody')) {
     parts[roles.melody] = opts.melody ?? generateMelody({ ...common, style, kind, chords, rng: rMelody });
   }
@@ -146,12 +146,30 @@ export function pickKey(mood, rng) {
 export function generateDraft(input) {
   const seed = input.seed ?? randomSeed();
   const rng = createRng(seed);
-  const mood = input.mood;
-  const style = MOOD_STYLES[mood];
-  const key = input.key ?? pickKey(mood, rng);
+  const style = MOOD_STYLES[input.mood];
+  const key = input.key ?? pickKey(input.mood, rng);
+  const song = createSkeleton({ ...input, key });
+  for (const layout of style.layout ?? CHORUS_LAYOUT) {
+    const content = composeSection(
+      { key, mood: input.mood, kind: layout.kind, bars: layout.bars, timeSignature: song.timeSignature, roles: tracksByRole(song.tracks) },
+      rng.fork(),
+    );
+    appendSection(song, layout, content);
+  }
+  song.extensions = { generator: { seed } };
+  return song;
+}
+
+/**
+ * 雰囲気に合うパート(楽器)だけを持った、部品のない曲を作る
+ * @param {{ mood: Mood, tempo: number, key: Key, title?: string, now?: string }} input
+ * @returns {Song}
+ */
+export function createSkeleton(input) {
+  const style = MOOD_STYLES[input.mood];
   // 雰囲気に合う速さの範囲があれば、その中に収める(和風EDMを「ゆっくり」で選んでも走るように)
   const tempo = style.tempoRange ? Math.max(style.tempoRange[0], Math.min(style.tempoRange[1], input.tempo)) : input.tempo;
-  const song = createEmptySong({ title: input.title, tempo, key, mood, now: input.now });
+  const song = createEmptySong({ title: input.title, tempo, key: input.key, mood: input.mood, now: input.now });
   song.tracks = [
     { id: 't1', role: 'vocal', instrument: style.instruments.melody, volume: 0.85, name: '歌メロ' },
     { id: 't2', role: 'chords', instrument: style.instruments.chords, volume: 0.6, name: '和音' },
@@ -164,29 +182,32 @@ export function generateDraft(input) {
   if (style.sidechain) {
     for (const t of song.tracks) if (t.role === 'chords' || t.role === 'pad' || t.role === 'lead') t.sidechain = true;
   }
-  const nextId = createIdFactory(song.tracks.map((t) => t.id));
-  const roles = tracksByRole(song.tracks);
-  for (const layout of style.layout ?? CHORUS_LAYOUT) {
-    const content = composeSection(
-      { key, mood, kind: layout.kind, bars: layout.bars, timeSignature: song.timeSignature, roles },
-      rng.fork(),
-    );
-    /** @type {Section} */
-    const section = {
-      id: nextId('s'),
-      name: layout.name,
-      kind: layout.kind,
-      bars: layout.bars,
-      chords: content.chords,
-      parts: Object.fromEntries(
-        Object.entries(content.parts).map(([tid, notes]) => [tid, notes.map((n) => ({ id: nextId('n'), ...n }))]),
-      ),
-    };
-    song.sections.push(section);
-    song.arrangement.push({ id: nextId('a'), sectionId: section.id, lyrics: [] });
-  }
-  song.extensions = { generator: { seed } };
   return song;
+}
+
+/**
+ * 作った中身を部品として曲の末尾に足す(曲を書き換える)
+ * @param {Song} song
+ * @param {{ name: string, kind: import('../types.js').SectionKind, bars: number }} layout
+ * @param {{ chords: Chord[], parts: Record<string, NoteData[]> }} content
+ * @returns {Section}
+ */
+export function appendSection(song, layout, content) {
+  const nextId = createIdFactory(collectIds(song));
+  /** @type {Section} */
+  const section = {
+    id: nextId('s'),
+    name: layout.name,
+    kind: layout.kind,
+    bars: layout.bars,
+    chords: content.chords,
+    parts: Object.fromEntries(
+      Object.entries(content.parts).map(([tid, notes]) => [tid, notes.map((n) => ({ id: nextId('n'), ...n }))]),
+    ),
+  };
+  song.sections.push(section);
+  song.arrangement.push({ id: nextId('a'), sectionId: section.id, lyrics: [] });
+  return section;
 }
 
 export { MOOD_STYLES, resolveMood, styleKindOf };

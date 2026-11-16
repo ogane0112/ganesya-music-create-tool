@@ -65,10 +65,21 @@ describe('曲データの検査', () => {
     const song = loadMinimalSong();
     song.sections[0].parts.t1.push({ id: 'n2', start: 480, length: 480, pitch: 70, velocity: 90 });
     const out = findOutOfKeyNotes(song);
-    expect(out).toEqual([{ sectionId: 's1', trackId: 't1', noteId: 'n2', pitch: 70, name: 'ラ#4' }]);
+    expect(out).toEqual([{ sectionId: 's1', trackId: 't1', noteId: 'n2', pitch: 70, name: 'ラ#4', start: 480, chord: 'Am' }]);
     const r = validateSong(song);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.message).toMatch('ラ#4');
+  });
+
+  it('キーの外でも、その時のコードの音なら通る(借りてきたコード)', () => {
+    const song = loadMinimalSong();
+    // Aマイナーで E7(ソ#を含む)を借りる
+    song.sections[0].chords = [{ start: 0, length: 1920, symbol: 'Am' }, { start: 1920, length: 1920, symbol: 'E7' }];
+    song.sections[0].parts.t1.push({ id: 'n2', start: 1920, length: 480, pitch: 68, velocity: 90 });
+    expect(validateSong(song).ok).toBe(true);
+    // 同じソ#でも、Am の上では外れた音
+    song.sections[0].parts.t1.push({ id: 'n3', start: 480, length: 480, pitch: 68, velocity: 90 });
+    expect(validateSong(song).ok).toBe(false);
   });
 
   it('取り込み時はキーから外れた音を注意書きにとどめる', () => {

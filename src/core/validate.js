@@ -1,7 +1,7 @@
 // 曲データの検査:形の正しさ、キーから外れた音の検出。知らない項目は消さずに残す。
 import { FORMAT_VERSION } from './types.js';
 import { isInstrument, isMood, isSectionKind, isTrackRole, TEMPO_MAX, TEMPO_MIN } from './catalog.js';
-import { isInKey, isValidTonic, parseChord, pitchNameDoremi, ticksPerBar } from './theory.js';
+import { chordPitchClasses, isInKey, isValidTonic, mod12, parseChord, pitchNameDoremi, ticksPerBar } from './theory.js';
 
 /** @typedef {import('./types.js').Song} Song */
 /** @typedef {import('./types.js').AppError} AppError */
@@ -19,6 +19,8 @@ import { isInKey, isValidTonic, parseChord, pitchNameDoremi, ticksPerBar } from 
  * @property {string} noteId
  * @property {number} pitch
  * @property {string} name 表示用の名前(ドレミ)
+ * @property {number} start 部品の先頭からの位置(ティック)
+ * @property {string | null} chord その時のコード
  */
 
 /** @param {unknown} v @returns {v is Record<string, any>} */
@@ -214,9 +216,12 @@ export function findOutOfKeyNotes(song, opts = {}) {
     for (const [trackId, notes] of Object.entries(s.parts)) {
       if (drumTracks.has(trackId)) continue;
       for (const n of notes) {
-        if (!isInKey(n.pitch, key)) {
-          out.push({ sectionId: s.id, trackId, noteId: n.id, pitch: n.pitch, name: pitchNameDoremi(n.pitch) });
-        }
+        if (isInKey(n.pitch, key)) continue;
+        // キーの外でも、その時鳴っているコードの音なら合っている(借りてきたコードなど)
+        const chord = s.chords.find((c) => n.start >= c.start && n.start < c.start + c.length);
+        const parsed = chord ? parseChord(chord.symbol) : null;
+        if (parsed && chordPitchClasses(/** @type {any} */ (chord).symbol).includes(mod12(n.pitch))) continue;
+        out.push({ sectionId: s.id, trackId, noteId: n.id, pitch: n.pitch, name: pitchNameDoremi(n.pitch), start: n.start, chord: chord?.symbol ?? null });
       }
     }
   }
@@ -254,8 +259,8 @@ export function validateSong(song, opts = {}) {
         ok: false,
         error: {
           code: 'invalid_song',
-          message: `曲のキーに合わない音があります(${outOfKey.length}個: ${names})`,
-          hint: 'キーに合う音に置き換えてください',
+          message: `曲のキーにも、その時のコードにも合わない音があります(${outOfKey.length}個: ${names})`,
+          hint: 'キーに合う音か、その時鳴っているコードの音に置き換えてください',
           details: { outOfKey },
         },
       };

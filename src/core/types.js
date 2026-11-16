@@ -140,7 +140,7 @@ export const FORMAT_VERSION = 1;
  * @typedef {object} ExportedFile
  * @property {string} name
  * @property {string} type MIMEタイプ
- * @property {Uint8Array} bytes
+ * @property {Uint8Array<ArrayBuffer>} bytes
  */
 
 /**
