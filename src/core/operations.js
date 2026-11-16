@@ -1,10 +1,13 @@
 // 操作:曲への変更はすべてここを通す。画面もMCPも同じ関数を呼ぶ。
 // どの操作も元の曲データを変えず、検査を通した新しい曲データを返す。
-import { FORMAT_VERSION } from './types.js';
 import { isInstrument, isMood, isSectionKind, TEMPO_MAX, TEMPO_MIN } from './catalog.js';
 import { collectIds, createIdFactory } from './ids.js';
 import { isValidTonic, keyPrefersFlat, mod12, pitchClassOf, ticksPerBar, transposeChord } from './theory.js';
 import { validateSong } from './validate.js';
+import { createEmptySong } from './song.js';
+import { generateDraft } from './composer/index.js';
+
+export { createEmptySong };
 
 /** @typedef {import('./types.js').Song} Song */
 /** @typedef {import('./types.js').Section} Section */
@@ -48,28 +51,6 @@ function finish(next, opts = {}) {
 // ---- 曲を作る ----
 
 /**
- * 空の曲を作る(叩き台の土台、テスト用)
- * @param {{ title?: string, artist?: string, tempo?: number, key?: Key, mood?: import('./types.js').Mood | null, now?: string }} [opts]
- * @returns {Song}
- */
-export function createEmptySong(opts = {}) {
-  const now = opts.now ?? new Date().toISOString();
-  return {
-    formatVersion: FORMAT_VERSION,
-    revision: 0,
-    meta: { title: opts.title ?? '無題の曲', artist: opts.artist ?? '', createdAt: now, updatedAt: now },
-    tempo: opts.tempo ?? 100,
-    key: opts.key ?? { tonic: 'C', mode: 'major' },
-    timeSignature: [4, 4],
-    mood: opts.mood ?? null,
-    tracks: [],
-    sections: [],
-    arrangement: [],
-    extensions: {},
-  };
-}
-
-/**
  * 取り込んだ曲データやAIが作った曲データを登録する。
  * revision は0から始め直す。キーから外れた音は、allowOutOfKey(MIDI取り込み)なら注意書き、そうでなければ拒否
  * @param {unknown} data
@@ -93,6 +74,20 @@ export function registerSong(data, opts = {}) {
     }
   }
   return validateSong(song, { allowOutOfKey: opts.allowOutOfKey });
+}
+
+/**
+ * 雰囲気とテンポから叩き台を作る
+ * @param {{ mood: import('./types.js').Mood, tempo: number, title?: string, seed?: number, now?: string }} input
+ * @returns {SongResult}
+ */
+export function createDraftSong(input) {
+  if (!isMood(input.mood)) return fail(`知らない雰囲気です: ${String(input.mood)}`, '切ない・疾走感・ダーク・明るい から選んでください');
+  if (!(input.tempo >= TEMPO_MIN && input.tempo <= TEMPO_MAX)) {
+    return fail(`テンポは${TEMPO_MIN}〜${TEMPO_MAX}にしてください`, '速さを範囲の中で選んでください');
+  }
+  const title = input.title?.trim() || '無題の曲';
+  return validateSong(generateDraft({ ...input, title }));
 }
 
 // ---- 部品を差し替える ----
