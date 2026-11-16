@@ -151,6 +151,29 @@ export function generateChordPart(o) {
       return fillPattern(chords, bars, barTicks, (c, slot, barStart) =>
         v(c).map((p) => ({ start: barStart + slot * S, length: 3 * S, pitch: p, velocity: (slot % 8 === 0 ? 88 : 72) + human() })),
       [0, 4, 8, 12]);
+    case 'pluck16':
+      // 和音の音を16分音符で細かく上下する(EDMの粒の細かい音)
+      return fillPattern(chords, bars, barTicks, (c, slot, barStart, i) => {
+        const vo = v(c);
+        const tones = [...vo, ...vo.map((p) => p + 12)];
+        const p = tones[[0, 1, 2, 3, 4, 3, 2, 1][i % 8] % tones.length];
+        return [{ start: barStart + slot * S, length: S - 20, pitch: p, velocity: (i % 4 === 0 ? 88 : 66) + human() }];
+      }, Array.from({ length: 16 }, (_, i) => i));
+    case 'offbeat-stab':
+      // 拍の裏で短く和音を刻む
+      return fillPattern(chords, bars, barTicks, (c, slot, barStart) =>
+        v(c).map((p) => ({ start: barStart + slot * S, length: S + 40, pitch: p + 12, velocity: 84 + human() })),
+      [2, 6, 10, 14]);
+    case 'pump': {
+      // 厚い和音を伸ばす(バスドラムに合わせたうねりは再生側で付ける)
+      return chords.flatMap((c) => {
+        const vo = v(c);
+        const low = rootPitch(c.symbol, 48);
+        return [low, ...vo, vo[vo.length - 1] + 12 > 88 ? vo[0] + 12 : vo[vo.length - 1] + 12]
+          .filter((p, i, a) => a.indexOf(p) === i)
+          .map((p) => ({ start: c.start, length: c.length - 10, pitch: p, velocity: 88 + human() }));
+      });
+    }
     case 'sustain':
     default:
       return chords.flatMap((c) => v(c).map((p) => ({ start: c.start, length: c.length - 20, pitch: p, velocity: 74 + human() })));
@@ -210,6 +233,18 @@ export function generateBass(o) {
         { start: barStart + slot * S, length: 2 * S - 30, pitch: root(c) + (i % 2 ? 12 : 0), velocity: vel(i % 2 === 0) },
       ], [0, 2, 4, 6, 8, 10, 12, 14]);
       break;
+    case 'offbeat':
+      // 拍の裏で鳴るベース(EDM)
+      notes = fillPattern(chords, bars, barTicks, (c, slot, barStart) => [
+        { start: barStart + slot * S, length: 2 * S - 20, pitch: root(c) + 12, velocity: vel(true) },
+      ], [2, 6, 10, 14]);
+      break;
+    case 'rolling':
+      // バスドラムの位置をよけて16分音符で転がる
+      notes = fillPattern(chords, bars, barTicks, (c, slot, barStart) => [
+        { start: barStart + slot * S, length: S - 15, pitch: root(c) + (slot % 4 === 2 ? 12 : 0), velocity: vel(slot % 4 === 2) },
+      ], [1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15]);
+      break;
     case 'syncopated':
     default:
       notes = fillPattern(chords, bars, barTicks, (c, slot, barStart) => [
@@ -219,7 +254,7 @@ export function generateBass(o) {
   }
 
   // 次のコードへ向かう経過音:コードの変わり目の直前の音を、次の根音の隣の音にする
-  if (style !== 'whole') {
+  if (style !== 'whole' && style !== 'offbeat' && style !== 'rolling') {
     for (let i = 0; i < chords.length - 1; i++) {
       const next = chords[i + 1];
       const before = notes.filter((n) => n.start < next.start && n.start >= next.start - 2 * S);

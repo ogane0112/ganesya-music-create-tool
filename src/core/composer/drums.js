@@ -34,6 +34,8 @@ export const DRUM_PATTERNS = {
   sixteen: { kick: 'x..o..x...x..o..', snare: '....x.......x...', closedHat: 'xoooxoooxoooxooo' },
   'four-floor': { kick: 'x...x...x...x...', snare: '....x.......x...', openHat: '..x...x...x...x.', closedHat: 'x...x...x...x...' },
   ride: { kick: 'x.....x...x.....', snare: '....x.......x...', ride: 'x.o.x.o.x.o.x.o.' },
+  // EDMの四つ打ち:裏で開いたハイハット、16分の閉じたハイハット
+  edm: { kick: 'x...x...x...x...', snare: '....x.......x...', openHat: '..x...x...x...x.', closedHat: 'oooooooooooooooo' },
 };
 
 /** 部品の終わりの1拍半〜2拍に入れる「おかず」 */
@@ -102,7 +104,17 @@ export function generateDrums(o) {
     const start = bar * barTicks;
     const last = bar === bars - 1;
     const fillEvery4 = !last && bar % 4 === 3 && rng.chance(0.4);
-    if (last && kind === 'prechorus' && rng.chance(0.6)) notes.push(...renderBar(BUILD, start, rng, 1));
+    if (style === 'four-floor' && kind === 'prechorus' && bar >= bars - 2) {
+      // EDMの盛り上げ:スネアがだんだん細かく強くなり、最後の2拍はバスドラムを抜いて溜める
+      const row = bar === bars - 2 ? 'x...x...x.x.x.x.' : 'x.x.x.x.xxxxxxxx';
+      for (let i = 0; i < 16; i++) {
+        if (row[i] !== 'x') continue;
+        const progress = (bar - (bars - 2) + i / 16) / 2;
+        notes.push({ start: start + i * S, length: 120, pitch: DRUM.snare, velocity: Math.round(55 + 70 * progress) });
+      }
+      const kick = bar === bars - 2 ? 'x...x...x...x...' : 'x...x...........';
+      for (let i = 0; i < 16; i++) if (kick[i] === 'x') notes.push({ start: start + i * S, length: 240, pitch: DRUM.kick, velocity: 100 });
+    } else if (last && kind === 'prechorus' && rng.chance(0.6)) notes.push(...renderBar(BUILD, start, rng, 1));
     else if (last || fillEvery4) notes.push(...renderBar(rng.pick(FILLS), start, rng, scale));
     else notes.push(...renderBar(pattern, start, rng, scale));
   }

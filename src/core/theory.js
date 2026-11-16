@@ -72,6 +72,23 @@ export function scalePitchesInRange(key, low, high) {
 }
 
 /**
+ * キーの中の5音(ヨナ抜き・ニロ抜き)だけを並べる。和風・ロックっぽい節回しに使う。
+ * 明るいキーは 1,2,3,5,6、暗いキーは 1,3,4,5,7 番目の音(どちらもキーに合う音の一部)
+ * @param {Key} key
+ * @param {number} low
+ * @param {number} high
+ */
+export function pentatonicPitchesInRange(key, low, high) {
+  const pcs = scalePitchClasses(key);
+  const pick = key.mode === 'major' ? [0, 1, 2, 4, 5] : [0, 2, 3, 4, 6];
+  const penta = pick.map((i) => pcs[i]);
+  /** @type {number[]} */
+  const out = [];
+  for (let p = low; p <= high; p++) if (penta.includes(mod12(p))) out.push(p);
+  return out;
+}
+
+/**
  * 指定した音に一番近い、キーに合う音を返す(同じ距離なら下)
  * @param {number} pitch
  * @param {Key} key

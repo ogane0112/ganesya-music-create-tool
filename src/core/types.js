@@ -18,11 +18,11 @@ export const FORMAT_VERSION = 1;
  * @property {Mode} mode 明るい(major)か暗い(minor)か
  */
 
-/** @typedef {'setsunai'|'shissou'|'dark'|'akarui'} Mood 雰囲気(切ない、疾走感、ダーク・不穏、明るい・爽やか) */
+/** @typedef {'setsunai'|'shissou'|'dark'|'akarui'|'wafu-edm'} Mood 雰囲気(切ない、疾走感、ダーク・不穏、明るい・爽やか、和風EDM) */
 
 /**
- * 楽器10種
- * @typedef {'piano'|'acoustic-guitar'|'electric-guitar-clean'|'electric-guitar-distortion'|'bass'|'drums'|'strings'|'synth-lead'|'synth-pad'|'bell'} InstrumentId
+ * 楽器11種(10種+EDM用のスーパーソー)
+ * @typedef {'piano'|'acoustic-guitar'|'electric-guitar-clean'|'electric-guitar-distortion'|'bass'|'drums'|'strings'|'synth-lead'|'synth-pad'|'bell'|'supersaw'} InstrumentId
  */
 
 /**
@@ -38,6 +38,7 @@ export const FORMAT_VERSION = 1;
  * @property {InstrumentId} instrument
  * @property {number} volume 0〜1
  * @property {boolean} [muted] 消音
+ * @property {boolean} [sidechain] バスドラムに合わせて音量をへこませる(EDMのうねり)
  * @property {string} [name] 表示名
  */
 

@@ -5,6 +5,7 @@ import { createRng, randomSeed } from '../random.js';
 import { ticksPerBar } from '../theory.js';
 import { generateBass, generateChordPart, generatePad } from './accompaniment.js';
 import { generateDrums } from './drums.js';
+import { generateLead } from './lead.js';
 import { generateMelody } from './melody.js';
 import { generateProgression } from './progressions.js';
 import { MOOD_STYLES, resolveMood, styleKindOf } from './styles.js';
@@ -32,8 +33,10 @@ const CHORUS_LAYOUT = /** @type {const} */ ([
 export function tracksByRole(tracks) {
   /** @param {import('../types.js').TrackRole} role */
   const find = (role) => tracks.find((t) => t.role === role)?.id;
+  const vocal = find('vocal');
   return {
-    melody: find('vocal') ?? find('lead'),
+    melody: vocal ?? find('lead'),
+    lead: vocal ? find('lead') : undefined,
     chords: find('chords'),
     bass: find('bass'),
     drums: find('drums'),
@@ -55,14 +58,16 @@ export function tracksByRole(tracks) {
  * @typedef {object} SectionContent
  * @property {Chord[]} chords
  * @property {Record<string, NoteData[]>} parts
- * @property {{ chordStyle: string, bassStyle: string, drumStyle: string }} styles どの弾き方を選んだか
+ * @property {{ chordStyle: string, bassStyle: string, drumStyle: string, leadStyle: string }} styles どの弾き方を選んだか
  */
+
+/** @typedef {'melody' | 'chords' | 'bass' | 'drums' | 'pad' | 'lead'} Part */
 
 /**
  * 部品1つ分の中身を作る。keep に渡したもの(コード進行やメロディ)はそのまま使う
  * @param {SectionContext} ctx
  * @param {Rng} rng
- * @param {{ chords?: Chord[], melody?: NoteData[], styles?: Partial<SectionContent['styles']>, only?: ('melody' | 'chords' | 'bass' | 'drums' | 'pad')[] }} [opts]
+ * @param {{ chords?: Chord[], melody?: NoteData[], styles?: Partial<SectionContent['styles']>, only?: Part[] }} [opts]
  * @returns {SectionContent}
  */
 export function composeSection(ctx, rng, opts = {}) {
@@ -76,8 +81,10 @@ export function composeSection(ctx, rng, opts = {}) {
     chordStyle: opts.styles?.chordStyle ?? rng.pick(style.chordStyles[kind]),
     bassStyle: opts.styles?.bassStyle ?? rng.pick(style.bassStyles[kind]),
     drumStyle: opts.styles?.drumStyle ?? rng.pick(style.drumStyles[kind]),
+    leadStyle: opts.styles?.leadStyle ?? (style.leadStyles ? rng.pick(style.leadStyles[ctx.kind === 'intro' ? 'intro' : kind]) : 'none'),
   };
-  /** @param {'melody' | 'chords' | 'bass' | 'drums' | 'pad'} p */
+  const isIntro = ctx.kind === 'intro';
+  /** @param {Part} p */
   const want = (p) => !opts.only || opts.only.includes(p);
   /** @type {Record<string, NoteData[]>} */
   const parts = {};
@@ -88,7 +95,10 @@ export function composeSection(ctx, rng, opts = {}) {
   const rBass = rng.fork();
   const rDrums = rng.fork();
   const rPad = rng.fork();
-  if (roles.melody && want('melody')) {
+  const rLead = rng.fork();
+  // イントロは歌わない(リフが主役)
+  if (roles.melody && want('melody') && isIntro) parts[roles.melody] = [];
+  else if (roles.melody && want('melody')) {
     parts[roles.melody] = opts.melody ?? generateMelody({ ...common, style, kind, chords, rng: rMelody });
   }
   if (roles.chords && want('chords')) parts[roles.chords] = generateChordPart({ ...common, chords, rng: rChords, style: styles.chordStyle });
@@ -96,6 +106,7 @@ export function composeSection(ctx, rng, opts = {}) {
   if (roles.drums && want('drums')) parts[roles.drums] = generateDrums({ ...common, kind, rng: rDrums, style: styles.drumStyle });
   // 背景の持続音はAメロでは控えめに(半分の確率で鳴らさない)
   if (roles.pad && want('pad')) parts[roles.pad] = kind === 'verse' && rPad.chance(0.5) ? [] : generatePad({ ...common, chords, rng: rPad, style: '' });
+  if (roles.lead && want('lead')) parts[roles.lead] = generateLead({ ...common, chords, rng: rLead, style: styles.leadStyle });
   // 部品の終わりからはみ出す音を切る
   const end = ctx.bars * ticksPerBar(ctx.timeSignature);
   for (const [tid, notes] of Object.entries(parts)) {
@@ -129,7 +140,9 @@ export function generateDraft(input) {
   const mood = input.mood;
   const style = MOOD_STYLES[mood];
   const key = input.key ?? pickKey(mood, rng);
-  const song = createEmptySong({ title: input.title, tempo: input.tempo, key, mood, now: input.now });
+  // 雰囲気に合う速さの範囲があれば、その中に収める(和風EDMを「ゆっくり」で選んでも走るように)
+  const tempo = style.tempoRange ? Math.max(style.tempoRange[0], Math.min(style.tempoRange[1], input.tempo)) : input.tempo;
+  const song = createEmptySong({ title: input.title, tempo, key, mood, now: input.now });
   song.tracks = [
     { id: 't1', role: 'vocal', instrument: style.instruments.melody, volume: 0.85, name: '歌メロ' },
     { id: 't2', role: 'chords', instrument: style.instruments.chords, volume: 0.6, name: '和音' },
@@ -137,9 +150,13 @@ export function generateDraft(input) {
     { id: 't4', role: 'drums', instrument: 'drums', volume: 0.7, name: 'ドラム' },
     { id: 't5', role: 'pad', instrument: style.instruments.pad, volume: 0.4, name: '背景' },
   ];
+  if (style.leadInstrument) song.tracks.push({ id: 't6', role: 'lead', instrument: style.leadInstrument, volume: 0.5, name: 'リフ' });
+  if (style.sidechain) {
+    for (const t of song.tracks) if (t.role === 'chords' || t.role === 'pad' || t.role === 'lead') t.sidechain = true;
+  }
   const nextId = createIdFactory(song.tracks.map((t) => t.id));
   const roles = tracksByRole(song.tracks);
-  for (const layout of CHORUS_LAYOUT) {
+  for (const layout of style.layout ?? CHORUS_LAYOUT) {
     const content = composeSection(
       { key, mood, kind: layout.kind, bars: layout.bars, timeSignature: song.timeSignature, roles },
       rng.fork(),

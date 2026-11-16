@@ -16,12 +16,12 @@ describe('叩き台(B6)', () => {
         const r = createDraftSong({ mood, tempo: 100, seed });
         if (!r.ok) throw new Error(`seed ${seed}: ${r.error.message}`);
         const s = r.value;
-        expect(s.sections.map((x) => x.kind)).toEqual(['verse', 'prechorus', 'chorus']);
-        expect(s.arrangement).toHaveLength(3);
+        expect(s.sections.map((x) => x.kind).filter((k) => k !== 'intro')).toEqual(['verse', 'prechorus', 'chorus']);
+        expect(s.arrangement).toHaveLength(s.sections.length);
         expect(s.mood).toBe(mood);
         for (const sec of s.sections) {
           for (const c of sec.chords) expect(isChordInKey(c.symbol, s.key)).toBe(true);
-          expect(sec.parts.t1.length).toBeGreaterThan(8); // メロディがある
+          if (sec.kind !== 'intro') expect(sec.parts.t1.length).toBeGreaterThan(8); // メロディがある
           expect(sec.parts.t3.length).toBeGreaterThan(0); // ベース
           expect(sec.parts.t4.length).toBeGreaterThan(0); // ドラム
         }
@@ -58,6 +58,34 @@ describe('叩き台(B6)', () => {
       const pitches = s.sections.flatMap((x) => x.parts.t1.map((n) => n.pitch));
       expect(Math.min(...pitches)).toBeGreaterThanOrEqual(52);
       expect(Math.max(...pitches)).toBeLessThanOrEqual(84);
+    }
+  });
+});
+
+describe('和風EDM', () => {
+  it('イントロのリフ、四つ打ち、うねり、5音のメロディ、速いテンポ', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const s = unwrap(createDraftSong({ mood: 'wafu-edm', tempo: 78, seed }));
+      expect(s.tempo).toBeGreaterThanOrEqual(140);
+      expect(s.sections[0].kind).toBe('intro');
+      const lead = s.tracks.find((t) => t.role === 'lead');
+      expect(lead?.instrument).toBe('supersaw');
+      expect(s.sections[0].parts[lead?.id ?? ''].length).toBeGreaterThan(30);
+      expect(s.tracks.filter((t) => t.sidechain).map((t) => t.role).sort()).toEqual(['chords', 'lead', 'pad']);
+      // サビのバスドラムは毎拍
+      const chorus = s.sections.find((x) => x.kind === 'chorus');
+      const kicks = chorus?.parts.t4.filter((n) => n.pitch === 36).map((n) => n.start) ?? [];
+      expect(kicks.filter((t) => t % 480 === 0).length).toBeGreaterThanOrEqual(20);
+      // メロディは5音だけ(Bメロ・サビ・Aメロとも)
+      const pcs = new Set(s.sections.flatMap((x) => x.parts.t1.map((n) => n.pitch % 12)));
+      expect(pcs.size).toBeLessThanOrEqual(5);
+    }
+  });
+  it('別案も作れる', () => {
+    const s = unwrap(createDraftSong({ mood: 'wafu-edm', tempo: 160, seed: 2 }));
+    for (const t of ALTERNATIVE_TARGETS) for (const sec of s.sections) {
+      if (t.id === 'melody' && sec.kind === 'intro') continue;
+      expect(generateAlternatives(s, sec.id, t.id).ok).toBe(true);
     }
   });
 });

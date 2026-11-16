@@ -1,7 +1,7 @@
 // 再生の仕組み(C1)。Web Audio の時計で少し先までを予約していく方式で、テンポどおりにずれずに鳴らす。
 import { buildTimeline } from '../core/timeline.js';
 import { ticksToSeconds } from '../core/theory.js';
-import { createMix, updateMix } from './render.js';
+import { createMix, playNote, updateMix } from './render.js';
 
 /** @typedef {import('../core/types.js').Song} Song */
 
@@ -116,9 +116,7 @@ export class Player {
       if (time > horizon) return;
       this.cursor++;
       if (time < ctx.currentTime - 0.02) continue; // 間に合わなかった音は飛ばす
-      const track = mix.tracks.get(ev.trackId);
-      if (!track) continue;
-      track.voice.play({ time, duration: ticksToSeconds(ev.length, song.tempo), pitch: ev.pitch, velocity: ev.velocity });
+      playNote(mix, ev.trackId, { time, duration: ticksToSeconds(ev.length, song.tempo), pitch: ev.pitch, velocity: ev.velocity });
     }
   }
 

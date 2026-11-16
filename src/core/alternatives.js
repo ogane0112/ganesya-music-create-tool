@@ -106,7 +106,7 @@ export function generateAlternatives(song, sectionId, target, opts = {}) {
       return { parts: c.parts };
     }
     if (t === 'accompaniment') {
-      const c = composeSection(ctx, r, { chords: section?.chords, only: ['chords', 'bass', 'drums', 'pad'] });
+      const c = composeSection(ctx, r, { chords: section?.chords, only: ['chords', 'bass', 'drums', 'pad', 'lead'] });
       return { parts: c.parts };
     }
     if (t === 'chords') {
@@ -126,7 +126,7 @@ export function generateAlternatives(song, sectionId, target, opts = {}) {
         }
       }
       if (!best) return null;
-      const c = composeSection(ctx, r, { chords: best, only: ['chords', 'bass', 'pad'] });
+      const c = composeSection(ctx, r, { chords: best, only: ['chords', 'bass', 'pad', 'lead'] });
       return { chords: best, parts: c.parts };
     }
     const c = composeSection(ctx, r);

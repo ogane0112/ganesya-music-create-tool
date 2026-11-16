@@ -1,7 +1,7 @@
 // メロディ(歌メロ)を作る。
 // 2小節を1フレーズとし、8小節を「a a' b a''」のように、リズムと形を繰り返しながら作る(覚えやすさのため)。
 // 音の高さは「キーに合う音の並び」の何番目かで扱うので、外れた音はそもそも出ない。
-import { scalePitchesInRange, chordPitchClasses, mod12, pitchClassOf, ticksPerBar } from '../theory.js';
+import { pentatonicPitchesInRange, scalePitchesInRange, chordPitchClasses, mod12, pitchClassOf, ticksPerBar } from '../theory.js';
 import { chordAt } from './progressions.js';
 
 /** @typedef {import('../types.js').Key} Key */
@@ -86,9 +86,10 @@ function pickPhraseRhythm(style, kind, rng) {
  * @param {Key} key
  * @param {'verse' | 'prechorus' | 'chorus'} kind
  * @param {number} [shift] 音域を上下にずらす(半音)
+ * @param {boolean} [pentatonic] true なら5音だけを使う
  */
-function melodyRange(key, kind, shift = 0) {
-  const scale = scalePitchesInRange(key, 48, 88);
+function melodyRange(key, kind, shift = 0, pentatonic = false) {
+  const scale = pentatonic ? pentatonicPitchesInRange(key, 48, 88) : scalePitchesInRange(key, 48, 88);
   const bounds = { verse: [57, 74], prechorus: [60, 76], chorus: [62, 79] };
   const [lo, hi] = bounds[kind];
   const low = scale.findIndex((p) => p >= lo + shift);
@@ -160,7 +161,7 @@ function nearestWithin(candidates, target, low, high) {
 export function generateMelody(o) {
   const { key, style, kind, bars, timeSignature, chords, rng } = o;
   const barTicks = ticksPerBar(timeSignature);
-  const range = melodyRange(key, kind, rng.pick([-2, 0, 0, 2]));
+  const range = melodyRange(key, kind, rng.pick([-2, 0, 0, 2]), style.melodyScale === 'pentatonic');
   const phrases = Math.max(1, Math.floor(bars / 2));
   const ending = o.ending ?? (kind === 'chorus' ? 'tonic' : 'open');
 

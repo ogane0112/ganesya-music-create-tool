@@ -80,6 +80,7 @@ export function checkShape(song) {
       if (!isInstrument(t.instrument)) bad(`${p}.instrument`, `知らない楽器です: ${String(t.instrument)}`);
       if (typeof t.volume !== 'number' || t.volume < 0 || t.volume > 1) bad(`${p}.volume`, '音量は0〜1である必要があります');
       if (t.muted !== undefined && typeof t.muted !== 'boolean') bad(`${p}.muted`, '消音は true か false である必要があります');
+      if (t.sidechain !== undefined && typeof t.sidechain !== 'boolean') bad(`${p}.sidechain`, 'sidechain は true か false である必要があります');
       if (t.name !== undefined && !isStr(t.name)) bad(`${p}.name`, 'パートの名前は文字列である必要があります');
     });
   }

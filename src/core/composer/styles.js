@@ -46,6 +46,12 @@ function prog(spec, beatsDefault = 4) {
  * @property {Record<'verse' | 'prechorus' | 'chorus', string[]>} drumStyles
  * @property {Record<string, number>} rhythmWeights メロディのリズムの型の重み
  * @property {number} leapChance メロディが跳ぶ確率
+ * @property {'scale' | 'pentatonic'} [melodyScale] メロディに使う音。pentatonic は5音だけ(和風・ロックの節回し)
+ * @property {InstrumentId} [leadInstrument] 歌の裏で鳴るフレーズ(リフ)の楽器。あればパートが1つ増える
+ * @property {Record<'intro' | 'verse' | 'prechorus' | 'chorus', string[]>} [leadStyles] リフの弾き方(riff・arp・none)
+ * @property {boolean} [sidechain] 和音・背景・リフをバスドラムに合わせてうねらせる(EDM)
+ * @property {{ name: string, kind: SectionKind, bars: number }[]} [layout] 叩き台の部品の並び(省略時は Aメロ・Bメロ・サビ)
+ * @property {[number, number]} [tempoRange] 雰囲気に合う速さ。選んだ速さがこれより遅ければ持ち上げる
  */
 
 /** @type {Record<Mood, MoodStyle>} */
@@ -118,6 +124,34 @@ export const MOOD_STYLES = {
     rhythmWeights: { eighths: 3, syncopate: 4, dotted: 2, restStart: 2, run16: 2, quarters: 1 },
     leapChance: 0.2,
   },
+  // 和風EDM:速いテンポ、5音の節回しと16分のリフ、王道進行。四つ打ちとうねる厚いシンセ、サビ前の盛り上げ
+  'wafu-edm': {
+    modes: ['minor'],
+    tonics: ['C#', 'D', 'D#', 'E', 'F#', 'G', 'A', 'B'],
+    progressions: {
+      verse: [prog('6 6 4 5'), prog('6 4 5 6'), prog('6 5 4 5'), prog('6 3 4 5')],
+      prechorus: [prog('4 5 3 6'), prog('2 3 4 5'), prog('4 4 5 5')],
+      chorus: [prog('4 5 3 6'), prog('4 5 3 6:2 1:2'), prog('6 4 5 3'), prog('4 5 6 6')],
+    },
+    seventhChance: 0.1,
+    instruments: { melody: 'synth-lead', chords: 'supersaw', bass: 'bass', pad: 'synth-pad' },
+    chordStyles: { verse: ['pluck16', 'offbeat-stab'], prechorus: ['pluck16', 'quarter'], chorus: ['pump'] },
+    bassStyles: { verse: ['eighth', 'syncopated'], prechorus: ['eighth'], chorus: ['offbeat', 'rolling'] },
+    drumStyles: { verse: ['sixteen', 'eight-beat'], prechorus: ['four-floor'], chorus: ['edm'] },
+    rhythmWeights: { eighths: 2, syncopate: 3, dotted: 1, restStart: 2, run16: 4, quarters: 0 },
+    leapChance: 0.25,
+    melodyScale: 'pentatonic',
+    leadInstrument: 'supersaw',
+    leadStyles: { intro: ['riff'], verse: ['none'], prechorus: ['arp'], chorus: ['riff', 'arp'] },
+    sidechain: true,
+    layout: [
+      { name: 'イントロ', kind: 'intro', bars: 4 },
+      { name: 'Aメロ', kind: 'verse', bars: 8 },
+      { name: 'Bメロ', kind: 'prechorus', bars: 8 },
+      { name: 'サビ', kind: 'chorus', bars: 8 },
+    ],
+    tempoRange: [140, 175],
+  },
 };
 
 /**
@@ -126,7 +160,7 @@ export const MOOD_STYLES = {
  * @returns {'verse' | 'prechorus' | 'chorus'}
  */
 export function styleKindOf(kind) {
-  if (kind === 'chorus') return 'chorus';
+  if (kind === 'chorus' || kind === 'intro') return 'chorus';
   if (kind === 'prechorus' || kind === 'bridge') return 'prechorus';
   return 'verse';
 }

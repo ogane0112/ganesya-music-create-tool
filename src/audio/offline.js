@@ -1,7 +1,7 @@
 // 曲全体を音のデータにする(C3)。再生と同じ楽器・同じ音量つまみを OfflineAudioContext で鳴らす。
 import { buildTimeline } from '../core/timeline.js';
 import { ticksToSeconds } from '../core/theory.js';
-import { createMix } from './render.js';
+import { createMix, playNote } from './render.js';
 import { encodeWav } from './wav-encode.js';
 
 /** @typedef {import('../core/types.js').Song} Song */
@@ -21,9 +21,7 @@ export async function renderSong(song, opts = {}) {
   const ctx = new OfflineAudioContext(2, Math.ceil(seconds * sampleRate), sampleRate);
   const mix = createMix(ctx, song, ctx.destination);
   for (const ev of timeline.events) {
-    const track = mix.tracks.get(ev.trackId);
-    if (!track) continue;
-    track.voice.play({
+    playNote(mix, ev.trackId, {
       time: LEAD_SECONDS + ticksToSeconds(ev.tick, song.tempo),
       duration: ticksToSeconds(ev.length, song.tempo),
       pitch: ev.pitch,

@@ -429,5 +429,40 @@ const bell = def('bell', (ctx, out) => {
   };
 });
 
+// ---- スーパーソー(EDMの厚いシンセ) ----
+// 少しずつ音程をずらしたのこぎり波を7本重ね、左右に広げる。短い音は明るさがすぐ落ちて「はじく」音になる
+const supersaw = def('supersaw', (ctx, out) => {
+  const bus = ctx.createGain();
+  bus.gain.value = 0.16;
+  bus.connect(out);
+  const spread = [-28, -17, -8, 0, 8, 17, 28];
+  return {
+    play({ time, duration, pitch, velocity }) {
+      const f = midiToHz(pitch);
+      const short = duration < 0.2;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.Q.value = 1.2;
+      const open = Math.min(16000, 2500 + velocity * 60 + f * 2);
+      filter.frequency.setValueAtTime(open, time);
+      filter.frequency.setTargetAtTime(short ? Math.max(500, f * 2) : open * 0.55, time, short ? 0.06 : 0.3);
+      const g = ctx.createGain();
+      const stop = adsr(g.gain, time, duration, short ? { a: 0.003, d: 0.12, s: 0.25, r: 0.08 } : { a: 0.01, d: 0.4, s: 0.8, r: 0.25 }, velGain(velocity));
+      filter.connect(g).connect(bus);
+      spread.forEach((cents, i) => {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = f;
+        o.detune.value = cents;
+        const pan = ctx.createStereoPanner();
+        pan.pan.value = (i / (spread.length - 1)) * 1.4 - 0.7;
+        o.connect(pan).connect(filter);
+        o.start(time + Math.random() * 0.004);
+        o.stop(stop + 0.05);
+      });
+    },
+  };
+});
+
 /** @type {Instrument[]} */
-export const SYNTH_INSTRUMENTS = [piano, acousticGuitar, electricClean, electricDist, bass, drums, strings, synthLead, synthPad, bell];
+export const SYNTH_INSTRUMENTS = [piano, acousticGuitar, electricClean, electricDist, bass, drums, strings, synthLead, synthPad, bell, supersaw];

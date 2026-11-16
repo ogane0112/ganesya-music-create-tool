@@ -12,6 +12,7 @@ export const INSTRUMENTS = [
   { id: 'synth-lead', label: 'シンセリード' },
   { id: 'synth-pad', label: 'シンセパッド' },
   { id: 'bell', label: 'ベル' },
+  { id: 'supersaw', label: 'シンセ(厚い音)' },
 ];
 
 /** @type {{ id: import('./types.js').Mood, label: string }[]} */
@@ -20,6 +21,7 @@ export const MOODS = [
   { id: 'shissou', label: '疾走感' },
   { id: 'dark', label: 'ダーク・不穏' },
   { id: 'akarui', label: '明るい・爽やか' },
+  { id: 'wafu-edm', label: '和風EDM' },
 ];
 
 /** @type {import('./types.js').TrackRole[]} */
