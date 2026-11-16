@@ -5,6 +5,7 @@ import { buildTimeline } from '../core/timeline.js';
 import { ticksToSeconds } from '../core/theory.js';
 import { createMix, DUCK, KICKS } from './render.js';
 import { lookupNote, prepareSong } from './note-cache.js';
+import { master } from './master.js';
 import { encodeWav } from './wav-encode.js';
 
 /** @typedef {import('../core/types.js').Song} Song */
@@ -105,5 +106,7 @@ export async function renderSongToWav(song, opts = {}) {
   const buffer = await renderSong(song, opts);
   const channels = [];
   for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
+  // 配信の基準の大きさ(-14 LUFS、最大 -1 dB)にそろえる
+  master(channels, buffer.sampleRate);
   return encodeWav(channels, buffer.sampleRate);
 }

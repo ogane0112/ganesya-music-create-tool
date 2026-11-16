@@ -180,7 +180,7 @@ export function createSkeleton(input) {
   song.tracks.push({ id: 't7', role: 'other', instrument: style.colorInstrument, volume: 0.45, name: '彩り' });
   if (style.leadInstrument) song.tracks.push({ id: 't6', role: 'lead', instrument: style.leadInstrument, volume: 0.5, name: 'リフ' });
   if (style.sidechain) {
-    for (const t of song.tracks) if (t.role === 'chords' || t.role === 'pad' || t.role === 'lead') t.sidechain = true;
+    for (const t of song.tracks) if (t.role === 'chords' || t.role === 'pad') t.sidechain = true;
   }
   return song;
 }

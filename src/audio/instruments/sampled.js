@@ -6,7 +6,7 @@
 /** @typedef {import('./synth.js').NoteEvent} NoteEvent */
 
 /** 音源の置き場(版を変えたらここを変える。ブラウザに長く覚えさせるため) */
-export const SOUNDS_BASE = '/sounds/v1';
+export const SOUNDS_BASE = '/sounds/v2';
 
 /**
  * @typedef {object} SampleOptions
@@ -15,7 +15,12 @@ export const SOUNDS_BASE = '/sounds/v1';
  * @property {boolean} [exact] その高さの録音だけを使い、高さを変えない(ドラム)
  */
 
-/** @type {WeakMap<Instrument, { pitch: number, buffer: AudioBuffer, offset: number }[]>} */
+/**
+ * 録音1つ。vel は録音した時の強さ(弱く弾いた音・強く弾いた音で音色が違う)
+ * @typedef {{ pitch: number, vel: number, buffer: AudioBuffer, offset: number }} Sample
+ */
+
+/** @type {WeakMap<Instrument, Sample[]>} */
 const loaded = new WeakMap();
 
 /**
@@ -33,7 +38,7 @@ function leadingSilence(buffer) {
 
 /**
  * @param {string} url
- * @returns {Promise<{ pitch: number, buffer: AudioBuffer, offset: number }[]>}
+ * @returns {Promise<Sample[]>}
  */
 async function loadPack(url) {
   const res = await fetch(url);
@@ -43,9 +48,9 @@ async function loadPack(url) {
   const header = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 4, headerLength)));
   const base = 4 + headerLength;
   const decoder = new OfflineAudioContext(1, 1, 44100);
-  return Promise.all(header.notes.map(async (/** @type {{ pitch: number, offset: number, length: number }} */ n) => {
+  return Promise.all(header.notes.map(async (/** @type {{ pitch: number, vel?: number, offset: number, length: number }} */ n) => {
     const buffer = await decoder.decodeAudioData(bytes.slice(base + n.offset, base + n.offset + n.length));
-    return { pitch: n.pitch, buffer, offset: leadingSilence(buffer) };
+    return { pitch: n.pitch, vel: n.vel ?? 100, buffer, offset: leadingSilence(buffer) };
   }));
 }
 
@@ -79,17 +84,22 @@ export function sampledInstrument(fallback, o) {
       const bus = ctx.createGain();
       bus.gain.value = o.gain;
       bus.connect(out);
+      const layers = [...new Set(samples.map((x) => x.vel))].sort((a, b) => a - b);
       return {
         play(note) {
+          // 弾く強さに一番近い録音を選び、その中で一番近い高さを使う
+          const layer = layers.reduce((best, v) => (Math.abs(v - note.velocity) < Math.abs(best - note.velocity) ? v : best));
+          const pool = samples.filter((x) => x.vel === layer);
           const s = o.exact
-            ? samples.find((x) => x.pitch === note.pitch)
-            : samples.reduce((best, x) => (Math.abs(x.pitch - note.pitch) < Math.abs(best.pitch - note.pitch) ? x : best));
+            ? pool.find((x) => x.pitch === note.pitch)
+            : pool.reduce((best, x) => (Math.abs(x.pitch - note.pitch) < Math.abs(best.pitch - note.pitch) ? x : best));
           if (!s) return spare.play(note);
           const src = ctx.createBufferSource();
           src.buffer = s.buffer;
           src.playbackRate.value = Math.pow(2, (note.pitch - s.pitch) / 12);
           const g = ctx.createGain();
-          g.gain.setValueAtTime(Math.pow(note.velocity / 127, 1.4), note.time);
+          // 録音そのものが強さに応じた大きさなので、録音した強さとの差の分だけ合わせる
+          g.gain.setValueAtTime(Math.pow(note.velocity / s.vel, 1.3), note.time);
           src.connect(g).connect(bus);
           src.start(note.time, s.offset);
           if (o.release > 0) {

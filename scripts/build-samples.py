@@ -8,7 +8,8 @@ FluidR3_GM(MITライセンス、Frank Wen 氏)から、アプリで使う楽器�
 使い方: python3 scripts/build-samples.py [出力先=sounds-build]
 
 .pack の形: 先頭4バイト(リトルエンディアン)=見出しの長さ、続いて見出し(JSON)、続いて MP3 を並べたもの。
-見出し: { "notes": [ { "pitch": 60, "offset": 0, "length": 12345 }, ... ] }  offset は MP3 部分の先頭から
+見出し: { "notes": [ { "pitch": 60, "vel": 100, "offset": 0, "length": 12345 }, ... ] }  offset は MP3 部分の先頭から
+vel は録音した時の強さ。弱く弾いた音と強く弾いた音の2種類を録る楽器がある(音色そのものが変わるため)
 """
 import json, os, struct, subprocess, sys, tempfile, wave
 import numpy as np
@@ -17,16 +18,20 @@ SF2 = os.environ.get('SF2', '/usr/share/sounds/sf2/FluidR3_GM.sf2')
 OUT = sys.argv[1] if len(sys.argv) > 1 else 'sounds-build'
 RATE = 44100
 
-# id: (GMの音色番号, 一番低い音, 一番高い音, 鍵盤を押している秒数, 1音あたりの録音枠の秒数)
+# id: (GMの音色番号, 一番低い音, 一番高い音, 鍵盤を押している秒数, 1音あたりの録音枠の秒数, 録る強さ)
+SOFT_HARD = (58, 112)
 INSTRUMENTS = {
-    'piano': (0, 33, 99, 3.0, 7.0),
-    'acoustic-guitar': (25, 38, 86, 2.5, 6.0),
-    'electric-guitar-clean': (27, 38, 86, 2.5, 6.0),
-    'electric-guitar-distortion': (30, 38, 80, 3.5, 5.5),
-    'bass': (33, 26, 58, 3.0, 5.0),
-    'strings': (48, 45, 99, 7.0, 9.0),
-    'bell': (10, 57, 99, 1.5, 5.0),
+    'piano': (0, 33, 99, 3.0, 7.0, SOFT_HARD),
+    'electric-piano': (4, 36, 96, 3.0, 6.0, SOFT_HARD),
+    'acoustic-guitar': (25, 38, 86, 2.5, 6.0, SOFT_HARD),
+    'electric-guitar-clean': (27, 38, 86, 2.5, 6.0, (100,)),
+    'electric-guitar-distortion': (30, 38, 80, 3.5, 5.5, (100,)),
+    'bass': (33, 26, 58, 3.0, 5.0, SOFT_HARD),
+    'strings': (48, 45, 99, 7.0, 9.0, (100,)),
+    'bell': (10, 57, 99, 1.5, 5.0, (100,)),
+    'koto': (107, 48, 93, 2.0, 5.0, SOFT_HARD),
 }
+DRUM_VELOCITIES = (50, 85, 120)
 # ドラム(General MIDI の標準キット)。番号: 秒
 DRUMS = {35: 1.5, 36: 1.5, 37: 1.0, 38: 1.5, 39: 1.5, 40: 1.5, 41: 2.0, 42: 1.0, 43: 2.0, 44: 1.0, 45: 2.0,
          46: 2.5, 47: 2.0, 48: 2.0, 49: 5.0, 50: 2.0, 51: 4.0}
@@ -79,12 +84,12 @@ def to_mp3(samples):
 
 
 def build(name, slots, events, total):
-    """slots: (番号, 開始秒, 枠の秒数)"""
+    """slots: (番号, 強さ, 開始秒, 枠の秒数)"""
     audio = render(events, total)
     peak = float(np.abs(audio).max()) or 1.0
     audio = audio * (0.9 / peak)  # 楽器ごとに一番大きい音を 0.9 にそろえる
     notes, blobs, offset = [], [], 0
-    for pitch, start, length in slots:
+    for pitch, vel, start, length in slots:
         a = audio[int(start * RATE):int((start + length) * RATE)]
         loud = np.nonzero(np.abs(a) > 0.0015)[0]
         if len(loud) == 0:
@@ -93,7 +98,7 @@ def build(name, slots, events, total):
         fade = min(len(a), int(0.02 * RATE))
         a[-fade:] *= np.linspace(1, 0, fade)
         mp3 = to_mp3(a)
-        notes.append({'pitch': pitch, 'offset': offset, 'length': len(mp3)})
+        notes.append({'pitch': pitch, 'vel': vel, 'offset': offset, 'length': len(mp3)})
         blobs.append(mp3)
         offset += len(mp3)
     header = json.dumps({'notes': notes}, separators=(',', ':')).encode()
@@ -105,18 +110,25 @@ def build(name, slots, events, total):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    for name, (program, low, high, hold, slot) in INSTRUMENTS.items():
+    only = set(sys.argv[2:])
+    for name, (program, low, high, hold, slot, velocities) in INSTRUMENTS.items():
+        if only and name not in only:
+            continue
         events, slots, t = [(0, bytes([0xC0, program]))], [], 0.5
-        for pitch in range(low, high + 1, STEP):
-            events += [(t, bytes([0x90, pitch, 100])), (t + hold, bytes([0x80, pitch, 0]))]
-            slots.append((pitch, t, slot))
-            t += slot
+        for vel in velocities:
+            for pitch in range(low, high + 1, STEP):
+                events += [(t, bytes([0x90, pitch, vel])), (t + hold, bytes([0x80, pitch, 0]))]
+                slots.append((pitch, vel, t, slot))
+                t += slot
         build(name, slots, events, t + 1)
+    if only and 'drums' not in only:
+        return
     events, slots, t = [], [], 0.5
-    for pitch, slot in DRUMS.items():
-        events += [(t, bytes([0x99, pitch, 110])), (t + 0.3, bytes([0x89, pitch, 0]))]
-        slots.append((pitch, t, slot))
-        t += slot
+    for vel in DRUM_VELOCITIES:
+        for pitch, slot in DRUMS.items():
+            events += [(t, bytes([0x99, pitch, vel])), (t + 0.3, bytes([0x89, pitch, 0]))]
+            slots.append((pitch, vel, t, slot))
+            t += slot
     build('drums', slots, events, t + 1)
 
 

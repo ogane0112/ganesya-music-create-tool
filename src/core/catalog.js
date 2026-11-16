@@ -3,6 +3,7 @@
 /** @type {{ id: import('./types.js').InstrumentId, label: string }[]} */
 export const INSTRUMENTS = [
   { id: 'piano', label: 'ピアノ' },
+  { id: 'electric-piano', label: 'エレクトリックピアノ' },
   { id: 'acoustic-guitar', label: 'アコースティックギター' },
   { id: 'electric-guitar-clean', label: 'エレキギター(クリーン)' },
   { id: 'electric-guitar-distortion', label: 'エレキギター(歪み)' },
@@ -12,6 +13,7 @@ export const INSTRUMENTS = [
   { id: 'synth-lead', label: 'シンセリード' },
   { id: 'synth-pad', label: 'シンセパッド' },
   { id: 'bell', label: 'ベル' },
+  { id: 'koto', label: '琴' },
   { id: 'supersaw', label: 'シンセ(厚い音)' },
 ];
 

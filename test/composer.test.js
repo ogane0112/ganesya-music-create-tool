@@ -98,9 +98,9 @@ describe('和風EDM', () => {
       expect(s.tempo).toBeGreaterThanOrEqual(140);
       expect(s.sections[0].kind).toBe('intro');
       const lead = s.tracks.find((t) => t.role === 'lead');
-      expect(lead?.instrument).toBe('supersaw');
+      expect(lead?.instrument).toBe('koto');
       expect(s.sections[0].parts[lead?.id ?? ''].length).toBeGreaterThan(30);
-      expect(s.tracks.filter((t) => t.sidechain).map((t) => t.role).sort()).toEqual(['chords', 'lead', 'pad']);
+      expect(s.tracks.filter((t) => t.sidechain).map((t) => t.role).sort()).toEqual(['chords', 'pad']);
       // サビのバスドラムは毎拍
       const chorus = s.sections.find((x) => x.kind === 'chorus');
       const kicks = chorus?.parts.t4.filter((n) => n.pitch === 36).map((n) => n.start) ?? [];

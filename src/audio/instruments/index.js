@@ -5,14 +5,16 @@ import { SYNTH_INSTRUMENTS } from './synth.js';
 
 /** 録音した音で鳴らす楽器と、その音量・消え方 */
 const SAMPLED = /** @type {Record<string, import('./sampled.js').SampleOptions>} */ ({
-  piano: { gain: 0.75, release: 0.25 },
-  'acoustic-guitar': { gain: 0.7, release: 0.2 },
-  'electric-guitar-clean': { gain: 1.0, release: 0.2 },
-  'electric-guitar-distortion': { gain: 0.42, release: 0.12 },
-  bass: { gain: 0.7, release: 0.1 },
-  strings: { gain: 0.5, release: 0.45 },
-  bell: { gain: 0.6, release: 0.6 },
-  drums: { gain: 0.95, release: 0, exact: true },
+  piano: { gain: 0.6, release: 0.25 },
+  'electric-piano': { gain: 0.42, release: 0.25 },
+  koto: { gain: 0.7, release: 0.3 },
+  'acoustic-guitar': { gain: 0.6, release: 0.2 },
+  'electric-guitar-clean': { gain: 0.65, release: 0.2 },
+  'electric-guitar-distortion': { gain: 0.3, release: 0.12 },
+  bass: { gain: 0.55, release: 0.1 },
+  strings: { gain: 0.36, release: 0.45 },
+  bell: { gain: 0.42, release: 0.6 },
+  drums: { gain: 0.7, release: 0, exact: true },
 });
 
 /** @typedef {import('./synth.js').Instrument} Instrument */

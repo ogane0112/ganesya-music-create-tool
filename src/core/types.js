@@ -22,7 +22,7 @@ export const FORMAT_VERSION = 1;
 
 /**
  * 楽器11種(10種+EDM用のスーパーソー)
- * @typedef {'piano'|'acoustic-guitar'|'electric-guitar-clean'|'electric-guitar-distortion'|'bass'|'drums'|'strings'|'synth-lead'|'synth-pad'|'bell'|'supersaw'} InstrumentId
+ * @typedef {'piano'|'acoustic-guitar'|'electric-guitar-clean'|'electric-guitar-distortion'|'bass'|'drums'|'strings'|'synth-lead'|'synth-pad'|'bell'|'supersaw'|'electric-piano'|'koto'} InstrumentId
  */
 
 /**

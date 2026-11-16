@@ -208,6 +208,7 @@ function playPluck(ctx, dest, n, o) {
 
 const acousticGuitar = plucked('acoustic-guitar', { seconds: 2.5, decay: 0.996, brightness: 0.7, gain: 0.55, cutoff: 5000 });
 const electricClean = plucked('electric-guitar-clean', { seconds: 3, decay: 0.998, brightness: 0.45, gain: 0.5, cutoff: 3200 });
+const koto = plucked('koto', { seconds: 2.5, decay: 0.994, brightness: 0.9, gain: 0.5, cutoff: 6000 });
 const electricDist = plucked('electric-guitar-distortion', { seconds: 3, decay: 0.999, brightness: 0.6, gain: 0.22, cutoff: 3000, drive: 8 });
 
 // ---- ベース ----
@@ -411,13 +412,19 @@ const strings = sustained('strings', {
   waves: [['sawtooth', -9, 0.4], ['sawtooth', 0, 0.4], ['sawtooth', 8, 0.4]],
   env: { a: 0.25, d: 0.5, s: 0.85, r: 0.45 }, cutoff: 2400, gain: 0.32, vibrato: 7, vibratoDelay: 0.4,
 });
+// リードは角を丸めた音にして、耳に刺さらないようにする(波を重ねて厚みを出し、明るさを抑える)
 const synthLead = sustained('synth-lead', {
-  waves: [['square', -4, 0.35], ['sawtooth', 4, 0.35]],
-  env: { a: 0.01, d: 0.25, s: 0.75, r: 0.12 }, cutoff: 3200, q: 2, gain: 0.32, vibrato: 18, vibratoDelay: 0.35, filterEnv: 1.8,
+  waves: [['triangle', 0, 0.5], ['sawtooth', -7, 0.16], ['sawtooth', 7, 0.16], ['sine', -1200, 0.25]],
+  env: { a: 0.015, d: 0.3, s: 0.8, r: 0.16 }, cutoff: 2200, q: 0.9, gain: 0.3, vibrato: 12, vibratoDelay: 0.4, filterEnv: 1.5,
 });
 const synthPad = sustained('synth-pad', {
-  waves: [['sawtooth', -12, 0.35], ['sawtooth', 12, 0.35], ['triangle', -1200, 0.4]],
-  env: { a: 0.6, d: 1, s: 0.8, r: 1.0 }, cutoff: 1300, gain: 0.3,
+  waves: [['sawtooth', -14, 0.2], ['sawtooth', -5, 0.2], ['sawtooth', 5, 0.2], ['sawtooth', 14, 0.2], ['triangle', -1200, 0.35]],
+  env: { a: 0.7, d: 1.2, s: 0.8, r: 1.2 }, cutoff: 950, gain: 0.24,
+});
+// 録音が読めない時の代わり(エレクトリックピアノ)
+const electricPiano = sustained('electric-piano', {
+  waves: [['sine', 0, 0.7], ['triangle', 1200, 0.12]],
+  env: { a: 0.004, d: 0.9, s: 0.25, r: 0.25 }, cutoff: 3000, gain: 0.4,
 });
 
 // ---- ベル(FM合成) ----
@@ -488,4 +495,4 @@ const supersaw = def('supersaw', (ctx, out) => {
 });
 
 /** @type {Instrument[]} */
-export const SYNTH_INSTRUMENTS = [piano, acousticGuitar, electricClean, electricDist, bass, drums, strings, synthLead, synthPad, bell, supersaw];
+export const SYNTH_INSTRUMENTS = [piano, acousticGuitar, electricClean, electricDist, bass, drums, strings, synthLead, synthPad, bell, supersaw, electricPiano, koto];

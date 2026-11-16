@@ -77,7 +77,7 @@ export const MOOD_STYLES = {
   },
   // 疾走感:速い8分のベースと16分のハイハット、裏で鳴るシンバル。歪んだギター
   shissou: {
-    colorInstrument: 'piano',
+    colorInstrument: 'electric-guitar-clean',
     modes: ['minor', 'major'],
     tonics: ['A', 'B', 'C#', 'D', 'E', 'F#', 'G', 'C', 'Eb'],
     progressions: {
@@ -86,7 +86,7 @@ export const MOOD_STYLES = {
       chorus: [prog('4 5 3 6'), prog('6 4 5 1'), prog('4 5 6 6'), prog('4:2 5:2 3:2 6:2 4:2 5:2 6:4')],
     },
     seventhChance: 0.2,
-    instruments: { melody: 'synth-lead', chords: 'electric-guitar-distortion', bass: 'bass', pad: 'synth-pad' },
+    instruments: { melody: 'piano', chords: 'electric-guitar-distortion', bass: 'bass', pad: 'strings' },
     chordStyles: { verse: ['palm', 'syncopated'], prechorus: ['strum', 'palm'], chorus: ['strum', 'power'] },
     bassStyles: { verse: ['eighth', 'syncopated'], prechorus: ['eighth'], chorus: ['eighth', 'octave'] },
     drumStyles: { verse: ['sixteen', 'eight-beat'], prechorus: ['eight-beat', 'sixteen'], chorus: ['four-floor', 'eight-beat'] },
@@ -95,7 +95,7 @@ export const MOOD_STYLES = {
   },
   // ダーク・不穏:暗いキーで6-4-5-6や6-2-3-6。低めの音域、重い拍、長い音
   dark: {
-    colorInstrument: 'strings',
+    colorInstrument: 'bell',
     modes: ['minor'],
     tonics: ['A', 'B', 'C', 'C#', 'D', 'E', 'F#', 'G'],
     progressions: {
@@ -104,7 +104,7 @@ export const MOOD_STYLES = {
       chorus: [prog('6 4 5 6'), prog('6 4 5 3'), prog('6 4 2 3'), prog('4 5 6 6')],
     },
     seventhChance: 0.35,
-    instruments: { melody: 'bell', chords: 'electric-guitar-clean', bass: 'bass', pad: 'synth-pad' },
+    instruments: { melody: 'electric-piano', chords: 'electric-guitar-clean', bass: 'bass', pad: 'strings' },
     chordStyles: { verse: ['sustain', 'arpeggio'], prechorus: ['quarter', 'sustain'], chorus: ['power', 'strum'] },
     bassStyles: { verse: ['whole', 'syncopated'], prechorus: ['half', 'eighth'], chorus: ['eighth', 'syncopated'] },
     drumStyles: { verse: ['half-time', 'light'], prechorus: ['half-time', 'eight-beat'], chorus: ['eight-beat', 'half-time'] },
@@ -122,7 +122,7 @@ export const MOOD_STYLES = {
       chorus: [prog('4 5 3 6'), prog('1 5 6 4'), prog('1:2 5:2 6:2 3:2 4:2 1:2 4:2 5:2'), prog('4 5 6 1')],
     },
     seventhChance: 0.3,
-    instruments: { melody: 'synth-lead', chords: 'piano', bass: 'bass', pad: 'strings' },
+    instruments: { melody: 'electric-piano', chords: 'piano', bass: 'bass', pad: 'strings' },
     chordStyles: { verse: ['syncopated', 'quarter'], prechorus: ['quarter', 'arpeggio'], chorus: ['syncopated', 'strum'] },
     bassStyles: { verse: ['half', 'syncopated'], prechorus: ['eighth', 'half'], chorus: ['octave', 'syncopated'] },
     drumStyles: { verse: ['eight-beat', 'light'], prechorus: ['eight-beat'], chorus: ['eight-beat', 'ride'] },
@@ -140,14 +140,14 @@ export const MOOD_STYLES = {
       chorus: [prog('4 5 3 6'), prog('4 5 3 6:2 1:2'), prog('6 4 5 3'), prog('4 5 6 6')],
     },
     seventhChance: 0.1,
-    instruments: { melody: 'synth-lead', chords: 'supersaw', bass: 'bass', pad: 'synth-pad' },
+    instruments: { melody: 'synth-lead', chords: 'supersaw', bass: 'bass', pad: 'strings' },
     chordStyles: { verse: ['pluck16', 'offbeat-stab'], prechorus: ['pluck16', 'quarter'], chorus: ['pump'] },
     bassStyles: { verse: ['eighth', 'syncopated'], prechorus: ['eighth'], chorus: ['offbeat', 'rolling'] },
     drumStyles: { verse: ['sixteen', 'eight-beat'], prechorus: ['four-floor'], chorus: ['edm'] },
     rhythmWeights: { eighths: 2, syncopate: 3, dotted: 1, restStart: 2, run16: 4, quarters: 0 },
     leapChance: 0.25,
     melodyScale: 'pentatonic',
-    leadInstrument: 'supersaw',
+    leadInstrument: 'koto',
     leadStyles: { intro: ['riff'], verse: ['none'], prechorus: ['arp'], chorus: ['riff', 'arp'] },
     sidechain: true,
     layout: [
