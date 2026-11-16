@@ -199,3 +199,12 @@ input[type='password'] { font: inherit; color: var(--text); min-height: var(--ta
 .save-state { font-size: 0.8rem; color: var(--muted); white-space: nowrap; padding: 0 4px; }
 .save-state.warn { color: var(--danger); font-weight: 700; }
 @media (max-width: 480px) { .save-state { display: none; } .save-state.warn { display: inline; } }
+
+/* ログイン・パスキー */
+button.wide { width: 100%; margin-bottom: 12px; }
+.first-time { margin-top: 20px; padding: 8px; }
+.disclosure { width: 100%; text-align: left; }
+.register-form { display: grid; gap: 12px; padding: 8px 8px 12px; }
+.keylist { list-style: none; padding: 0; margin: 0 0 10px; display: grid; gap: 4px; }
+.keylist li { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding: 2px 0 2px 4px; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }

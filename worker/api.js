@@ -33,7 +33,6 @@ async function readJson(request) {
  */
 export async function handleApi(request, path, store) {
   const method = request.method;
-  if (path === 'auth/me') return json({ ok: true });
   if (path === 'songs') {
     if (method === 'GET') return json(await store.list());
     if (method === 'POST') {

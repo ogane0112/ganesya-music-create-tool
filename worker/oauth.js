@@ -5,7 +5,9 @@
 //   3. 利用者のブラウザで /oauth/authorize が開く。本人確認をして「許可する」を押す
 //   4. 相手が /oauth/token で認可コードを許可証(アクセストークン)に替える
 //   5. 以後は Authorization: Bearer <許可証> で /mcp を呼ぶ。切れたら更新用の許可証で取り直す
-// 本人確認はいまは合言葉(仮)。パスキーのログイン(E2)ができたら verifyOwner を差し替える。
+// 本人確認はアプリのログイン(パスキー)を使う。ログインしていなければ、先にログイン画面へ送る。
+
+import { nowSeconds, randomToken, sha256 } from './b64.js';
 
 /** @typedef {import('./oauth-store.js').OAuthStore} OAuthStore */
 
@@ -21,19 +23,8 @@ const json = (body, status = 200) =>
 /** @param {string} error @param {string} description @param {number} [status] */
 const oauthError = (error, description, status = 400) => json({ error, error_description: description }, status);
 
-/** @param {ArrayBuffer | Uint8Array} bytes */
-function base64url(bytes) {
-  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  let s = '';
-  for (const x of b) s += String.fromCharCode(x);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-const randomToken = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
-/** @param {string} text */
-export async function sha256(text) {
-  return base64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
-}
-const now = () => Math.floor(Date.now() / 1000);
+const now = nowSeconds;
+export { sha256 };
 
 /** @param {string} s */
 const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
@@ -116,11 +107,10 @@ button.primary{background:#4257d6;border-color:#4257d6;color:#fff;font-weight:70
 <p class="muted">曲の削除はできません。許可のあと ${esc(o.redirectHost)} に戻ります。</p>
 ${o.error ? `<p class="error" role="alert">${esc(o.error)}</p>` : ''}
 <form method="post" action="/oauth/authorize">${hidden}
-<label>合言葉(本人確認)<input type="password" name="access_key" autocomplete="current-password" autofocus required></label>
 <div class="row"><button type="submit" name="decision" value="deny" formnovalidate>やめる</button><button class="primary" type="submit" name="decision" value="allow">許可する</button></div>
 </form></main></body></html>`, {
     status: o.error ? 401 : 200,
-    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action *; frame-ancestors 'none'", 'referrer-policy': 'no-referrer' },
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action *; frame-ancestors 'none'", 'referrer-policy': 'same-origin' },
   });
 }
 
@@ -131,10 +121,10 @@ const AUTH_PARAMS = ['response_type', 'client_id', 'redirect_uri', 'code_challen
  * @param {Request} request
  * @param {URL} url
  * @param {OAuthStore} store
- * @param {(accessKey: string) => Promise<string | null>} verifyOwner 本人確認。通れば持ち主のID
+ * @param {{ ownerId: string | null, sameSite: boolean }} auth ownerId はログイン中の人。sameSite はこのサイトの画面からの操作か
  * @returns {Promise<Response | null>}
  */
-export async function handleOAuth(request, url, store, verifyOwner) {
+export async function handleOAuth(request, url, store, auth) {
   const origin = url.origin;
   const path = url.pathname;
   if (request.method === 'OPTIONS' && (path.startsWith('/oauth/') || path.startsWith('/.well-known/') || path === '/mcp')) {
@@ -204,11 +194,17 @@ export async function handleOAuth(request, url, store, verifyOwner) {
     if (p.response_type !== 'code') return back({ error: 'unsupported_response_type' });
     if (!p.code_challenge || (p.code_challenge_method ?? 'S256') !== 'S256') return back({ error: 'invalid_request', error_description: 'PKCE (S256) が必要です' });
 
+    // ログインしていなければ、アプリのログイン画面へ。ログインできたらここへ戻ってくる
+    const ownerId = auth.ownerId;
+    if (!ownerId) {
+      const next = `/oauth/authorize?${new URLSearchParams(p)}`;
+      return new Response(null, { status: 302, headers: { location: `/?next=${encodeURIComponent(next)}`, 'cache-control': 'no-store' } });
+    }
     const page = { clientName: client.clientName, redirectHost: new URL(p.redirect_uri).host, params: p };
     if (request.method === 'GET') return authorizePage(page);
+    // 「許可する」は、このサイトの許可画面で押されたものだけを受ける(よそのページからの送信を断る)
+    if (!auth.sameSite) return authorizePage({ ...page, error: '許可の画面からもう一度操作してください' });
     if (form.decision !== 'allow') return back({ error: 'access_denied' });
-    const ownerId = await verifyOwner(form.access_key ?? '');
-    if (!ownerId) return authorizePage({ ...page, error: '合言葉が違うようです。もう一度入れてください' });
     const code = randomToken();
     await store.addCode({ codeHash: await sha256(code), clientId: client.clientId, redirectUri: p.redirect_uri, codeChallenge: p.code_challenge, ownerId, expiresAt: now() + CODE_TTL });
     return back({ code });

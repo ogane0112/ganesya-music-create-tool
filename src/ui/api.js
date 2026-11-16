@@ -1,10 +1,8 @@
 // 保存用APIの呼び出し。失敗は { code, message, hint } の形にそろえて投げる。
-// いまの本人確認は仮の「合言葉」。端末に覚えておき、毎回付けて送る(パスキーのログインに置き換える予定)。
+// 本人確認はパスキーのログイン。ログイン中の印はクッキーで、ブラウザが自動で付けて送る。
 
 /** @typedef {import('../core/types.js').Song} Song */
 /** @typedef {import('../core/types.js').AppError} AppError */
-
-const KEY_STORAGE = 'ganesya.accessKey';
 
 export class ApiError extends Error {
   /**
@@ -18,24 +16,6 @@ export class ApiError extends Error {
   }
 }
 
-export function getAccessKey() {
-  try {
-    return localStorage.getItem(KEY_STORAGE) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-/** @param {string} key */
-export function setAccessKey(key) {
-  try {
-    if (key) localStorage.setItem(KEY_STORAGE, key);
-    else localStorage.removeItem(KEY_STORAGE);
-  } catch {
-    // 覚えられなくても続ける
-  }
-}
-
 /**
  * @param {string} method
  * @param {string} path
@@ -46,7 +26,7 @@ async function request(method, path, body) {
   try {
     res = await fetch(`/api/${path}`, {
       method,
-      headers: { authorization: `Bearer ${getAccessKey()}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+      headers: body === undefined ? {} : { 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -67,8 +47,15 @@ async function request(method, path, body) {
 }
 
 export const api = {
-  /** 合言葉が合っているか */
-  check: () => request('GET', 'auth/me'),
+  /** ログイン中か @returns {Promise<{ loggedIn: boolean }>} */
+  me: () => request('GET', 'auth/me'),
+  /** ログインまわりの呼び出し(passkey.js が使う) @param {string} path @param {unknown} body @returns {Promise<any>} */
+  auth: (path, body) => request('POST', `auth/${path}`, body),
+  logout: () => request('POST', 'auth/logout', {}),
+  /** @returns {Promise<{ id: string, name: string, createdAt: string }[]>} */
+  passkeys: () => request('GET', 'auth/passkeys'),
+  /** @param {string} id */
+  removePasskey: (id) => request('DELETE', `auth/passkeys/${id}`),
   /** @returns {Promise<{ id: string, title: string, updatedAt: string, revision: number }[]>} */
   list: () => request('GET', 'songs'),
   /** @param {string} id @returns {Promise<{ id: string, song: Song }>} */

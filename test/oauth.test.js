@@ -22,18 +22,18 @@ const REDIRECT = 'https://claude.ai/api/mcp/auth_callback';
 
 function setup() {
   const store = memoryStore();
-  /** @param {string} key */
-  const verify = async (key) => (key === 'himitsu' ? 'owner' : null);
+  /** ログイン中の人と、このサイトの画面からの操作かどうか(テストごとに切り替える) */
+  const auth = { ownerId: /** @type {string | null} */ ('owner'), sameSite: true };
   /** @param {string} path @param {RequestInit} [init] */
   const call = async (path, init) => {
     const url = new URL(ORIGIN + path);
-    const res = await handleOAuth(new Request(url, init), url, store, verify);
+    const res = await handleOAuth(new Request(url, init), url, store, auth);
     if (!res) throw new Error('該当なし: ' + path);
     return res;
   };
   /** @param {Record<string, string>} f */
   const form = (f) => ({ method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(f).toString() });
-  return { store, call, form };
+  return { store, call, form, auth };
 }
 
 /** PKCE の組 */
@@ -56,7 +56,7 @@ describe('OAuth', () => {
   });
 
   it('登録→許可→許可証→更新、の一連', async () => {
-    const { store, call, form } = setup();
+    const { store, call, form, auth } = setup();
     const reg = await call('/oauth/register', { method: 'POST', body: JSON.stringify({ client_name: 'Claude', redirect_uris: [REDIRECT] }) });
     expect(reg.status).toBe(201);
     const { client_id } = /** @type {any} */ (await reg.json());
@@ -70,17 +70,29 @@ describe('OAuth', () => {
     expect(html).toContain('「Claude」をつなぎますか');
     expect(html).toContain('claude.ai');
 
-    // 合言葉が違うと進めない
-    const wrong = await call('/oauth/authorize', form({ ...q, decision: 'allow', access_key: 'chigau' }));
-    expect(wrong.status).toBe(401);
-    expect(await wrong.text()).toContain('合言葉が違う');
+    // ログインしていなければ、ログイン画面へ送る(戻り先つき)。許可はされない
+    auth.ownerId = null;
+    for (const res of [await call('/oauth/authorize?' + new URLSearchParams(q)), await call('/oauth/authorize', form({ ...q, decision: 'allow' }))]) {
+      expect(res.status).toBe(302);
+      const to = res.headers.get('location') ?? '';
+      expect(to.startsWith('/?next=')).toBe(true);
+      expect(decodeURIComponent(to.slice('/?next='.length))).toContain('/oauth/authorize?response_type=code');
+    }
+    auth.ownerId = 'owner';
+
+    // よそのページから「許可する」を送られても、許可しない
+    auth.sameSite = false;
+    const forged = await call('/oauth/authorize', form({ ...q, decision: 'allow' }));
+    expect(forged.status).toBe(401);
+    expect(forged.headers.get('location')).toBeNull();
+    auth.sameSite = true;
 
     // やめる
     const deny = await call('/oauth/authorize', form({ ...q, decision: 'deny' }));
     expect(new URL(deny.headers.get('location') ?? '').searchParams.get('error')).toBe('access_denied');
 
     // 許可する
-    const allow = await call('/oauth/authorize', form({ ...q, decision: 'allow', access_key: 'himitsu' }));
+    const allow = await call('/oauth/authorize', form({ ...q, decision: 'allow' }));
     expect(allow.status).toBe(302);
     const loc = new URL(allow.headers.get('location') ?? '');
     expect(loc.origin + loc.pathname).toBe(REDIRECT);
@@ -96,7 +108,7 @@ describe('OAuth', () => {
     expect(again.status).toBe(400); // 1回しか使えない
 
     // もう一度許可して、正しく交換する
-    const allow2 = await call('/oauth/authorize', form({ ...q, decision: 'allow', access_key: 'himitsu' }));
+    const allow2 = await call('/oauth/authorize', form({ ...q, decision: 'allow' }));
     const code2 = new URL(allow2.headers.get('location') ?? '').searchParams.get('code') ?? '';
     const tok = await call('/oauth/token', form({ grant_type: 'authorization_code', code: code2, client_id, redirect_uri: REDIRECT, code_verifier: verifier }));
     expect(tok.status).toBe(200);

@@ -1,10 +1,14 @@
 // Cloudflare Worker の入口。画面のファイル、保存用API(/api)、MCP(/mcp)を配る。
 //
 // 本人確認:
-// - MCP(/mcp)は OAuth。Claude のコネクタに https://…/mcp を登録すると、許可の画面が開く(worker/oauth.js)
-// - 保存用API(/api)と、OAuth の許可画面での本人確認は、いまは仮の合言葉(Worker の秘密の値 ACCESS_KEY)。
-//   パスキーのログイン(E2)ができたら置き換える。
+// - 画面と保存用API(/api)は、アプリのログイン(パスキー。worker/auth.js)。ログイン中の印はクッキーで持つ
+// - MCP(/mcp)は OAuth。Claude のコネクタに https://…/mcp を登録すると、許可の画面が開く(worker/oauth.js)。
+//   許可の画面の本人確認もアプリのログインを使う
+// - Worker の秘密の値 ACCESS_KEY は「登録用の合言葉」。初めての端末でパスキーを登録する時だけ使う。
+//   設計ではここは Cloudflare Access の役目。Access(E5)を入れたら外す。
 import { handleApi, json } from './api.js';
+import { handleAuth, sessionOwner, trustedOrigin } from './auth.js';
+import { authStore } from './auth-store.js';
 import { HttpError, songStore } from './db.js';
 import { ASSETS } from './generated-assets.js';
 import { handleMcp } from './mcp.js';
@@ -37,7 +41,7 @@ async function sameSecret(a, b) {
   return diff === 0;
 }
 
-const unauthorized = () => new HttpError(401, { code: 'unauthorized', message: 'ログインしていません', hint: '合言葉を入れてください' });
+const unauthorized = () => new HttpError(401, { code: 'unauthorized', message: 'ログインしていません', hint: 'パスキーでログインしてください' });
 
 /** @param {string} path */
 function serveAsset(path) {
@@ -62,13 +66,27 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
+      const auth = authStore(env.DB);
+      if (url.pathname.startsWith('/api/auth/')) {
+        return await handleAuth(request, url, url.pathname.slice('/api/auth/'.length), auth, {
+          defaultOwner: OWNER,
+          checkSetupKey: async (key) => !!env.ACCESS_KEY && (await sameSecret(key, env.ACCESS_KEY)),
+        });
+      }
       if (url.pathname.startsWith('/api/')) {
-        const given = /^Bearer (.+)$/.exec(request.headers.get('authorization') ?? '')?.[1] ?? '';
-        if (!env.ACCESS_KEY || !(await sameSecret(given, env.ACCESS_KEY))) throw unauthorized();
-        return await handleApi(request, url.pathname.slice(5), songStore(env.DB, OWNER));
+        const owner = await sessionOwner(request, auth);
+        if (!owner) throw unauthorized();
+        // 書き換える操作は、このサイトの画面からのものだけを受ける
+        if (request.method !== 'GET' && !trustedOrigin(request, url)) {
+          throw new HttpError(403, { code: 'forbidden', message: 'このサイトの画面から操作してください', hint: 'ページを開き直してください' });
+        }
+        return await handleApi(request, url.pathname.slice(5), songStore(env.DB, owner));
       }
       const oauth = oauthStore(env.DB);
-      const handled = await handleOAuth(request, url, oauth, async (key) => (env.ACCESS_KEY && (await sameSecret(key, env.ACCESS_KEY)) ? OWNER : null));
+      const handled = await handleOAuth(request, url, oauth, {
+        ownerId: url.pathname === '/oauth/authorize' ? await sessionOwner(request, auth) : null,
+        sameSite: !!trustedOrigin(request, url),
+      });
       if (handled) return handled;
       if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) {
         // URL に合言葉を入れる以前の方式は廃止した。許可証(OAuth)だけを受け付ける

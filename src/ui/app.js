@@ -16,7 +16,8 @@ import { validateSong } from '../core/validate.js';
 import { prepareSong } from '../audio/note-cache.js';
 import { renderSongToWav } from '../audio/offline.js';
 import { Player } from '../audio/player.js';
-import { api, ApiError, getAccessKey, setAccessKey } from './api.js';
+import { api, ApiError } from './api.js';
+import { loginWithPasskey, passkeysSupported, registerPasskey } from './passkey.js';
 import { h, replace } from './dom.js';
 import { sectionThumb } from './thumb.js';
 
@@ -59,8 +60,14 @@ export function mountApp(root) {
   const player = new Player();
   /** @type {History | null} */
   let history = null;
-  /** @type {'key' | 'list' | 'create' | 'editor'} */
-  let screen = getAccessKey() ? 'list' : 'key';
+  /** @type {'loading' | 'login' | 'list' | 'create' | 'editor'} */
+  let screen = 'loading';
+  /** AIとつなぐ許可画面から来た時の戻り先(ログインできたらそこへ進む) */
+  const nextParam = new URLSearchParams(location.search).get('next') ?? '';
+  const next = nextParam.startsWith('/oauth/authorize?') ? nextParam : '';
+  /** @type {{ id: string, name: string, createdAt: string }[] | null} 登録済みのパスキー */
+  let passkeys = null;
+  let showRegister = false;
   /** @type {{ id: string, title: string, updatedAt: string, revision: number }[] | null} 曲の一覧(null は読み込み中) */
   let songs = null;
   /** @type {string | null} 開いている曲のID */
@@ -189,9 +196,8 @@ export function mountApp(root) {
   function handleApiError(e) {
     const err = e instanceof ApiError ? e : null;
     if (err?.status === 401) {
-      setAccessKey('');
-      keyError = '合言葉が違うようです。もう一度入れてください';
-      screen = 'key';
+      keyError = 'ログインが切れました。もう一度ログインしてください';
+      screen = 'login';
       stop();
       render();
       return;
@@ -356,7 +362,7 @@ export function mountApp(root) {
   function render() {
     const scroll = root.querySelector('.timeline')?.scrollLeft ?? 0;
     replace(root,
-      screen === 'key' ? keyView() : screen === 'list' ? listView() : screen === 'editor' && history ? editorView(history) : createView(),
+      screen === 'loading' ? h('main', { class: 'create' }, h('p', { class: 'muted' }, '読み込んでいます…')) : screen === 'login' ? loginView() : screen === 'list' ? listView() : screen === 'editor' && history ? editorView(history) : createView(),
       alt && history ? alternativesSheet(history.current, alt) : null,
       toast ? toastView(toast) : null,
     );
@@ -435,45 +441,74 @@ export function mountApp(root) {
     }
   }
 
-  // ---- 合言葉(仮のログイン) ----
-  function keyView() {
-    let value = '';
-    const submit = async () => {
-      if (!value.trim() || busy) return;
-      busy = true;
-      setAccessKey(value.trim());
-      try {
-        await api.check();
-        keyError = '';
-        busy = false;
-        loadList();
-      } catch (e) {
-        busy = false;
-        const err = e instanceof ApiError ? e : null;
-        setAccessKey('');
-        keyError = err?.status === 401 ? '合言葉が違うようです。もう一度入れてください' : `${err?.error.message ?? '問題が起きました'}。${err?.error.hint ?? ''}`;
-        render();
-      }
-    };
-    return h('main', { class: 'create keyview' },
+  // ---- ログイン(パスキー) ----
+  /** ログインできた後に進む先 */
+  function afterLogin() {
+    keyError = '';
+    if (next) {
+      location.href = next; // AIとつなぐ許可の画面へ戻る
+      return;
+    }
+    loadList();
+  }
+
+  /** @param {() => Promise<void>} action */
+  async function runLogin(action) {
+    if (busy) return;
+    busy = true;
+    keyError = '';
+    render();
+    try {
+      await action();
+      busy = false;
+      afterLogin();
+    } catch (e) {
+      busy = false;
+      const err = e instanceof ApiError ? e.error : null;
+      keyError = err ? `${err.message}。${err.hint}` : '問題が起きました。もう一度試してください';
+      render();
+    }
+  }
+
+  function loginView() {
+    let setupKey = '';
+    const supported = passkeysSupported();
+    return h('main', { class: 'create loginview' },
       h('header', { class: 'create-head' },
         h('h1', null, 'がねしゃ作曲ツール'),
-        h('p', { class: 'muted' }, '合言葉を入れると、曲の一覧が開きます。この端末では一度入れれば覚えます。'),
+        h('p', { class: 'muted' }, next ? 'AIとつなぐ前に、ログインしてください。' : 'パスキー(この端末の指紋・顔・暗証番号)でログインします。'),
       ),
-      h('form', { class: 'field-row', onSubmit: (/** @type {Event} */ e) => { e.preventDefault(); submit(); } },
-        h('label', { class: 'field grow' },
-          h('span', { class: 'field-label' }, '合言葉'),
-          h('input', { type: 'password', autocomplete: 'current-password', onInput: (/** @type {Event} */ e) => { value = /** @type {HTMLInputElement} */ (e.target).value; } }),
-        ),
-        h('button', { type: 'submit', class: 'primary big key-submit' }, '開く'),
-      ),
+      !supported && h('p', { class: 'form-error', role: 'alert' }, 'このブラウザはパスキーに対応していません。iPad の Safari か、PC の Chrome・Edge の最新版で開いてください。'),
+      h('button', { type: 'button', class: 'primary big wide', disabled: busy || !supported, onClick: () => runLogin(loginWithPasskey) }, busy ? '確認しています…' : '🔑 パスキーでログイン'),
       keyError && h('p', { class: 'form-error', role: 'alert' }, keyError),
+      h('section', { class: 'panel first-time' },
+        h('button', { type: 'button', class: 'ghost disclosure', 'aria-expanded': String(showRegister), onClick: () => { showRegister = !showRegister; render(); } },
+          `${showRegister ? '▾' : '▸'} この端末を初めて使う(パスキーを登録する)`),
+        showRegister && h('form', { class: 'register-form', onSubmit: (/** @type {Event} */ e) => { e.preventDefault(); runLogin(() => registerPasskey(setupKey.trim())); } },
+          h('p', { class: 'muted small' }, '登録用の合言葉を入れると、この端末にパスキーを作ります。次からは合言葉なしで、パスキーだけでログインできます。'),
+          h('label', { class: 'field' },
+            h('span', { class: 'field-label' }, '登録用の合言葉'),
+            h('input', { type: 'password', autocomplete: 'off', required: true, onInput: (/** @type {Event} */ e) => { setupKey = /** @type {HTMLInputElement} */ (e.target).value; } }),
+          ),
+          h('button', { type: 'submit', class: 'secondary', disabled: busy || !supported }, 'パスキーを登録する'),
+        ),
+      ),
     );
+  }
+
+  async function loadPasskeys() {
+    try {
+      passkeys = await api.passkeys();
+      if (screen === 'list') render();
+    } catch {
+      passkeys = [];
+    }
   }
 
   // ---- 曲一覧 ----
   function listView() {
     const mcpUrl = `${location.origin}/mcp`;
+    if (passkeys === null) loadPasskeys();
     return h('main', { class: 'create listview' },
       h('header', { class: 'list-head' },
         h('h1', null, '曲一覧'),
@@ -510,7 +545,7 @@ export function mountApp(root) {
         h('ol', { class: 'steps' },
           h('li', null, 'Claude の設定 →「コネクタ」→「カスタムコネクタを追加」を開く'),
           h('li', null, '下のURLを貼り付けて追加する'),
-          h('li', null, '「接続」を押すと許可の画面が開くので、合言葉を入れて「許可する」を押す'),
+          h('li', null, '「接続」を押すと許可の画面が開くので、「許可する」を押す'),
           h('li', null, 'チャットで「がねしゃ作曲ツールで、切ない曲を作って」のように頼む。できた曲はこの一覧に出ます'),
         ),
         h('div', { class: 'copy-row' },
@@ -528,10 +563,62 @@ export function mountApp(root) {
             },
           }, 'コピー'),
         ),
-        h('p', { class: 'muted small' }, 'URLだけでは曲は読めません。許可の画面で合言葉を入れた相手だけがつながります。'),
+        h('p', { class: 'muted small' }, 'URLだけでは曲は読めません。あなたがログインして許可した相手だけがつながります。'),
       ),
-      h('div', { class: 'list-actions' },
-        h('button', { type: 'button', class: 'ghost', onClick: () => { setAccessKey(''); keyError = ''; screen = 'key'; render(); } }, 'この端末の合言葉を忘れる(ログアウト)'),
+      h('section', { class: 'panel' },
+        h('div', { class: 'panel-head' }, h('h2', null, '🔑 パスキー'), h('span', { class: 'muted small' }, 'ログインに使う端末')),
+        passkeys === null ? h('p', { class: 'muted' }, '読み込んでいます…') : h('ul', { class: 'keylist' },
+          passkeys.map((p) => h('li', null,
+            h('span', null, p.name),
+            h('button', {
+              type: 'button', class: 'ghost danger', disabled: passkeys !== null && passkeys.length <= 1,
+              title: passkeys !== null && passkeys.length <= 1 ? '最後の1つは削除できません' : '',
+              onClick: async () => {
+                if (!confirm(`「${p.name}」を削除しますか?その端末ではログインできなくなります`)) return;
+                try {
+                  await api.removePasskey(p.id);
+                  showToast('パスキーを削除しました');
+                  passkeys = null;
+                  render();
+                } catch (e) {
+                  handleApiError(e);
+                }
+              },
+            }, '削除'),
+          )),
+        ),
+        h('p', { class: 'muted small' }, '端末を1台なくしても入れるように、iPad と PC の両方で登録しておくと安心です。別の端末では、その端末でこのページを開いて「この端末を初めて使う」から登録します。'),
+        h('div', { class: 'row-actions' },
+          h('button', {
+            type: 'button', class: 'secondary',
+            onClick: async () => {
+              try {
+                await registerPasskey();
+                showToast('パスキーを追加しました');
+                passkeys = null;
+                render();
+              } catch (e) {
+                handleApiError(e);
+              }
+            },
+          }, '＋ この端末にパスキーを追加'),
+          h('button', {
+            type: 'button', class: 'ghost',
+            onClick: async () => {
+              try {
+                await api.logout();
+              } catch {
+                // 通信できなくても、画面はログイン前に戻す
+              }
+              passkeys = null;
+              songs = null;
+              history = null;
+              keyError = '';
+              screen = 'login';
+              render();
+            },
+          }, 'ログアウト'),
+        ),
       ),
     );
   }
@@ -836,7 +923,26 @@ export function mountApp(root) {
   });
 
   render();
-  if (screen === 'list') loadList();
+  // 以前の仮の合言葉は、もう端末に覚えておかない
+  try {
+    localStorage.removeItem('ganesya.accessKey');
+  } catch {
+    // 続ける
+  }
+  api.me().then(
+    (me) => {
+      if (me.loggedIn) afterLogin();
+      else {
+        screen = 'login';
+        render();
+      }
+    },
+    (e) => {
+      screen = 'login';
+      keyError = e instanceof ApiError ? `${e.error.message}。${e.error.hint}` : '';
+      render();
+    },
+  );
 }
 
 /** @param {string} iso */
