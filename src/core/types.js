@@ -18,7 +18,7 @@ export const FORMAT_VERSION = 1;
  * @property {Mode} mode 明るい(major)か暗い(minor)か
  */
 
-/** @typedef {'setsunai'|'shissou'|'dark'|'akarui'|'wafu-edm'} Mood 雰囲気(切ない、疾走感、ダーク・不穏、明るい・爽やか、和風EDM) */
+/** @typedef {'setsunai'|'shissou'|'dark'|'akarui'|'wafu-edm'|'rock'} Mood 雰囲気(切ない、疾走感、ダーク・不穏、明るい・爽やか、和風EDM) */
 
 /**
  * 楽器11種(10種+EDM用のスーパーソー)

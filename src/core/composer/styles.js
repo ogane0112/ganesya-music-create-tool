@@ -129,6 +129,34 @@ export const MOOD_STYLES = {
     rhythmWeights: { eighths: 3, syncopate: 4, dotted: 2, restStart: 2, run16: 2, quarters: 1 },
     leapChance: 0.2,
   },
+  // ロック:J-ROCKの王道。速めのテンポ、歪んだギターのパワーコードと8分で刻むベース、8ビートのドラム。
+  // Aメロは抑えめ(パームミュート)、サビ前は4-5を重ねて溜め、サビは開いたハイハットで開放する
+  rock: {
+    colorInstrument: 'electric-guitar-clean',
+    modes: ['minor', 'major'],
+    tonics: ['E', 'A', 'B', 'F#', 'G', 'D', 'C#'],
+    progressions: {
+      verse: [prog('6 4 1 5 6 4 5 5'), prog('6 6 4 4 6 6 5 5'), prog('1 5/7 6 1/3 4 1/3 2 5'), prog('6 5 4 4 6 5 4 5')],
+      prechorus: [prog('4 5 3 6 4 5 4 5'), prog('2 5 3 6 4 5 1 5'), prog('6 4 2 5 6 4 5 5')],
+      chorus: [prog('4 5 3 6 4 5 1 1'), prog('4 5 1 6 4 5 6 6'), prog('6 4 1 5 6 4 5 5'), prog('4 5 6 3 4 5 1 5')],
+    },
+    seventhChance: 0.15,
+    instruments: { melody: 'piano', chords: 'electric-guitar-distortion', bass: 'bass', pad: 'strings' },
+    chordStyles: { verse: ['palm'], prechorus: ['power'], chorus: ['power', 'strum'] },
+    bassStyles: { verse: ['eighth'], prechorus: ['eighth'], chorus: ['eighth', 'octave'] },
+    drumStyles: { verse: ['rock-verse'], prechorus: ['rock-verse'], chorus: ['rock-open'] },
+    rhythmWeights: { eighths: 3, syncopate: 3, dotted: 1, restStart: 3, run16: 3, quarters: 1 },
+    leapChance: 0.22,
+    leadInstrument: 'electric-guitar-distortion',
+    leadStyles: { intro: ['riff'], verse: ['none'], prechorus: ['none'], chorus: ['none'] },
+    layout: [
+      { name: 'イントロ', kind: 'intro', bars: 4 },
+      { name: 'Aメロ', kind: 'verse', bars: 8 },
+      { name: 'Bメロ', kind: 'prechorus', bars: 8 },
+      { name: 'サビ', kind: 'chorus', bars: 8 },
+    ],
+    tempoRange: [140, 184],
+  },
   // 和風EDM:速いテンポ、5音の節回しと16分のリフ、王道進行。四つ打ちとうねる厚いシンセ、サビ前の盛り上げ
   'wafu-edm': {
     colorInstrument: 'bell',

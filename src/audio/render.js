@@ -10,14 +10,15 @@ import { cachedVoice } from './note-cache.js';
 //   room  : 同じ部屋で鳴っている感じ(短い響き)。生の楽器に多め → ばらばらの音が1つの演奏にまとまる
 //   reverb: 遠くまで広がる長い響き。多いほど奥に聞こえる(背景は奥、歌とドラムは手前)
 //   lowCut: これより低い音を削る(Hz)。ベースとバスドラムの居場所を空けて、濁りを取る
-const ROLE_MIX = /** @type {Record<TrackRole, { pan: number, room: number, reverb: number, delay: number, lowCut: number }>} */ ({
-  vocal: { pan: 0, room: 0.1, reverb: 0.16, delay: 0.12, lowCut: 120 },
-  chords: { pan: -0.35, room: 0.2, reverb: 0.12, delay: 0, lowCut: 110 },
+//   eq    : 声の帯域(約3kHz)の出し入れ(dB)。歌は持ち上げ、ギターなどは下げて、歌の居場所を空ける
+const ROLE_MIX = /** @type {Record<TrackRole, { pan: number, room: number, reverb: number, delay: number, lowCut: number, eq?: { freq: number, gain: number } }>} */ ({
+  vocal: { pan: 0, room: 0.1, reverb: 0.16, delay: 0.12, lowCut: 120, eq: { freq: 3200, gain: 3 } },
+  chords: { pan: -0.35, room: 0.2, reverb: 0.12, delay: 0, lowCut: 110, eq: { freq: 2800, gain: -2.5 } },
   bass: { pan: 0, room: 0.06, reverb: 0, delay: 0, lowCut: 0 },
   drums: { pan: 0, room: 0.24, reverb: 0.05, delay: 0, lowCut: 0 },
-  pad: { pan: 0.3, room: 0, reverb: 0.4, delay: 0, lowCut: 180 },
-  lead: { pan: 0.35, room: 0.12, reverb: 0.2, delay: 0.1, lowCut: 150 },
-  other: { pan: -0.25, room: 0.1, reverb: 0.3, delay: 0.16, lowCut: 200 },
+  pad: { pan: 0.3, room: 0, reverb: 0.4, delay: 0, lowCut: 180, eq: { freq: 2800, gain: -2 } },
+  lead: { pan: 0.35, room: 0.12, reverb: 0.2, delay: 0.1, lowCut: 150, eq: { freq: 2800, gain: -2 } },
+  other: { pan: -0.25, room: 0.1, reverb: 0.3, delay: 0.16, lowCut: 200, eq: { freq: 2800, gain: -1.5 } },
 });
 
 export const KICKS = new Set([35, 36]);
@@ -108,7 +109,7 @@ function roomResponse(ctx) {
  * @param {BaseAudioContext} ctx
  * @param {Song} song
  * @param {AudioNode} destination
- * @param {{ voices?: boolean }} [opts] voices=false なら楽器を用意しない(音を外で足し合わせる時)
+ * @param {{ voices?: boolean, dynamics?: boolean }} [opts] voices=false なら楽器を用意しない(音を外で足し合わせる時)。dynamics=false ならコンプレッサー・リミッターを通さない(音量バランスの測定用)
  * @returns {MixBus}
  */
 export function createMix(ctx, song, destination, opts = {}) {
@@ -141,7 +142,9 @@ export function createMix(ctx, song, destination, opts = {}) {
   mud.frequency.value = 300;
   mud.Q.value = 0.8;
   mud.gain.value = -1.5;
-  master.connect(rumble).connect(mud).connect(air).connect(comp).connect(limiter).connect(destination);
+  const eqOut = master.connect(rumble).connect(mud).connect(air);
+  if (opts.dynamics === false) eqOut.connect(destination);
+  else eqOut.connect(comp).connect(limiter).connect(destination);
 
   const reverb = ctx.createConvolver();
   reverb.buffer = impulseResponse(ctx);
@@ -193,14 +196,23 @@ export function createMix(ctx, song, destination, opts = {}) {
     gain.gain.value = trackGain(song, t.id);
     const pan = ctx.createStereoPanner();
     pan.pan.value = role.pan;
+    /** @type {AudioNode} */
+    let tail = duck;
     if (role.lowCut > 0) {
       const cut = ctx.createBiquadFilter();
       cut.type = 'highpass';
       cut.frequency.value = role.lowCut;
-      duck.connect(cut).connect(gain).connect(pan).connect(master);
-    } else {
-      duck.connect(gain).connect(pan).connect(master);
+      tail = tail.connect(cut);
     }
+    if (role.eq) {
+      const eq = ctx.createBiquadFilter();
+      eq.type = 'peaking';
+      eq.frequency.value = role.eq.freq;
+      eq.Q.value = 0.9;
+      eq.gain.value = role.eq.gain;
+      tail = tail.connect(eq);
+    }
+    tail.connect(gain).connect(pan).connect(master);
     if (role.room > 0) {
       const send = ctx.createGain();
       send.gain.value = role.room;

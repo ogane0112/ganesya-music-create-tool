@@ -42,6 +42,7 @@ const MOOD_CARDS = /** @type {Record<Mood, { icon: string, text: string }>} */ (
   dark: { icon: '🕯️', text: '低く重く、影のある雰囲気' },
   akarui: { icon: '☀️', text: '晴れた日のような軽やかなポップス' },
   'wafu-edm': { icon: '🏮', text: '和風の節回し × 踊れるビート' },
+  rock: { icon: '🎸', text: '歪んだギターと疾走するドラムのバンドサウンド' },
 });
 
 const TEMPO_CHOICES = /** @type {const} */ ([

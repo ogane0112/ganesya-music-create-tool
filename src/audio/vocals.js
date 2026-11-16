@@ -7,8 +7,12 @@ import { singerOf } from '../connectors/voicevox.js';
 /** @typedef {import('../core/types.js').Song} Song */
 /** @typedef {import('../core/performance.js').PerformedNote} PerformedNote */
 
-/** 歌声の音量(楽器とのつり合い) */
+/** 歌声の音量(楽器とのつり合い)。音の詰まった伴奏(ロックなど)では、歌が埋もれないよう大きくする。細かい調整は「歌メロ」の音量つまみ */
 const VOCAL_GAIN = 1.15;
+const VOCAL_GAIN_BY_MOOD = /** @type {Record<string, number>} */ ({ rock: 1.5, shissou: 1.4, 'wafu-edm': 1.4, dark: 1.25 });
+
+/** @param {Song} song */
+const vocalGain = (song) => (song.mood && VOCAL_GAIN_BY_MOOD[song.mood]) || VOCAL_GAIN;
 
 /** @type {Map<string, { wav: ArrayBuffer, leadSeconds: number, decoded: Map<number, AudioBuffer> }>} */
 const store = new Map();
@@ -73,7 +77,7 @@ export function withVocals(song, performed, sampleRate) {
     const buffer = v?.decoded.get(sampleRate);
     if (!v || !buffer) continue;
     sungItems.add(item.itemId);
-    clips.push({ time: (item.startTick / 480) * (60 / song.tempo) - v.leadSeconds, buffer, trackId: track.id, gain: VOCAL_GAIN });
+    clips.push({ time: (item.startTick / 480) * (60 / song.tempo) - v.leadSeconds, buffer, trackId: track.id, gain: vocalGain(song) });
   }
   return { notes: performed.notes.filter((n) => !(n.trackId === track.id && sungItems.has(n.itemId))), clips };
 }

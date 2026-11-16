@@ -15,7 +15,7 @@ const LEAD_SECONDS = 0.05;
 
 /**
  * @param {Song} song
- * @param {{ sampleRate?: number, itemIds?: string[], onProgress?: (done: number, total: number) => void }} [opts]
+ * @param {{ sampleRate?: number, itemIds?: string[], onProgress?: (done: number, total: number) => void, dynamics?: boolean }} [opts] dynamics=false は測定用(コンプレッサーを通さない)
  * @returns {Promise<AudioBuffer>}
  */
 export async function renderSong(song, opts = {}) {
@@ -73,7 +73,7 @@ export async function renderSong(song, opts = {}) {
   const duckCurve = kicks.length ? makeDuckCurve(kicks, frames, sampleRate) : null;
 
   const ctx = new OfflineAudioContext(2, frames, sampleRate);
-  const mix = createMix(ctx, song, ctx.destination, { voices: false });
+  const mix = createMix(ctx, song, ctx.destination, { voices: false, dynamics: opts.dynamics });
   for (const t of song.tracks) {
     const stem = stems.get(t.id);
     const bus = mix.tracks.get(t.id);

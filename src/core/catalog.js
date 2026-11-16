@@ -24,6 +24,7 @@ export const MOODS = [
   { id: 'dark', label: 'ダーク・不穏' },
   { id: 'akarui', label: '明るい・爽やか' },
   { id: 'wafu-edm', label: '和風EDM' },
+  { id: 'rock', label: 'ロック' },
 ];
 
 /** @type {import('./types.js').TrackRole[]} */

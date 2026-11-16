@@ -37,6 +37,9 @@ export const DRUM_PATTERNS = {
   sixteen: { kick: 'x..o..x...x..o..', snare: '....x.......x...', closedHat: 'xoooxoooxoooxooo' },
   'four-floor': { kick: 'x...x...x...x...', snare: '....x.......x...', openHat: '..x...x...x...x.', closedHat: 'x...x...x...x...' },
   ride: { kick: 'x.....x...x.....', snare: '....x.......x...', ride: 'x.o.x.o.x.o.x.o.' },
+  // ロック:Aメロ・Bメロは8分のハイハットで前のめりに。サビは開いたハイハットで開放し、バスドラムを増やして押し出す
+  'rock-verse': { kick: 'x.....x...x.x...', snare: '....x.......x...', closedHat: 'x.x.x.x.x.x.x.x.' },
+  'rock-open': { kick: 'x.x...x.x.x...x.', snare: '....x.......x...', openHat: 'x.o.x.o.x.o.x.o.' },
   // EDMの四つ打ち:裏で開いたハイハット、16分の閉じたハイハット
   edm: { kick: 'x...x...x...x...', snare: '....x.......x...', openHat: '..x...x...x...x.', closedHat: 'oooooooooooooooo' },
 };

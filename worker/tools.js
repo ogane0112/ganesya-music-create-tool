@@ -196,7 +196,7 @@ export const TOOLS = [
       type: 'object',
       properties: {
         title: { type: 'string' },
-        mood: { type: 'string', enum: ['setsunai', 'shissou', 'dark', 'akarui', 'wafu-edm'], description: '雰囲気。楽器の組み合わせと伴奏の傾向が決まる' },
+        mood: { type: 'string', enum: ['setsunai', 'shissou', 'dark', 'akarui', 'wafu-edm', 'rock'], description: '雰囲気。楽器の組み合わせと伴奏の傾向が決まる' },
         tempo: { type: 'number', description: '1分あたりの拍数(40〜240)' },
         key: KEY_SCHEMA,
         sections: { type: 'array', items: SECTION_SPEC_SCHEMA, description: '曲の頭から順に並べる部品' },
