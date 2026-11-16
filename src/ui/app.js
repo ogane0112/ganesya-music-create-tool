@@ -8,8 +8,12 @@ import { generateAlternatives, ALTERNATIVE_TARGETS } from '../core/alternatives.
 import { INSTRUMENTS, MOODS, TEMPO_PRESETS } from '../core/catalog.js';
 import { History } from '../core/history.js';
 import {
-  addArrangementItem, createDraftSong, moveArrangementItem, removeArrangementItem, replaceSection, updateSongSettings,
+  addArrangementItem, createDraftSong, moveArrangementItem, removeArrangementItem, replaceSection, setConnectorSettings, setLyrics,
+  updateSongSettings,
 } from '../core/operations.js';
+import { assignLyrics, lyricLines } from '../core/lyrics.js';
+import { listSingers, singerOf, singItem, voicevoxAvailable } from '../connectors/voicevox.js';
+import { hasVocal, setVocal } from '../audio/vocals.js';
 import { buildTimeline } from '../core/timeline.js';
 import { ticksToSeconds } from '../core/theory.js';
 import { validateSong } from '../core/validate.js';
@@ -90,6 +94,13 @@ export function mountApp(root) {
   /** @type {ReturnType<typeof setTimeout> | null} */
   let toastTimer = null;
   let menuOpen = false;
+  /** @type {Map<string, string>} 書きかけの歌詞(並び順の項目ごと) */
+  const lyricDrafts = new Map();
+  let lyricsOpen = false;
+  /** @type {string | null} 歌わせている途中の項目 */
+  let singing = null;
+  /** @type {{ id: number, label: string }[] | null} 歌い手の一覧(VOICEVOX につながった時に読む) */
+  let singers = null;
   let sheetEntering = false; // 別案のパネルを開いた最初の1回だけ動きを付ける
   /** @type {string | null} WAVを作っている途中の表示 */
   let wavStatus = null;
@@ -728,7 +739,108 @@ export function mountApp(root) {
         h('button', { type: 'button', class: 'ghost', onClick: () => apply(addArrangementItem(song, section.id, index + 1), { label: `${section.name}をもう一度使う`, message: `${section.name}をもう一度入れました` }) }, '＋ もう一度使う'),
         h('button', { type: 'button', class: 'ghost danger', disabled: song.arrangement.length === 1, onClick: () => apply(removeArrangementItem(song, item.id), { label: `${section.name}を外す`, message: `${section.name}を外しました` }) }, '外す'),
       ),
+      lyricsPanel(song, item, section.name),
     );
+  }
+
+  /**
+   * 歌詞と歌声
+   * @param {Song} song
+   * @param {import('../core/types.js').ArrangementItem} item
+   * @param {string} name
+   */
+  function lyricsPanel(song, item, name) {
+    const lines = lyricLines(song, item.id);
+    if (lines.length === 0) return null; // メロディのない部品(イントロなど)
+    const saved = lines.map((l) => l.kana).join('\n').replace(/\n+$/, '');
+    const text = lyricDrafts.get(item.id) ?? saved;
+    const check = assignLyrics(song, item.sectionId, text);
+    const counts = lines.map((l) => l.notes).join('・');
+    const sung = hasVocal(song, item.id);
+    /** 行ごとの合い具合(入力のたびに書き換える) */
+    const status = h('ul', { class: 'lyric-status', 'aria-live': 'polite' });
+    /** @param {ReturnType<typeof assignLyrics>} c */
+    const fillStatus = (c) => replace(status,
+      c.invalid.length ? h('li', { class: 'bad' }, `かなで書いてください(読めない字: ${c.invalid.slice(0, 6).join(' ')})`) : null,
+      c.lines.map((l, i) => {
+        const diff = l.morae - l.notes;
+        return h('li', { class: diff === 0 ? 'good' : l.morae === 0 ? '' : 'bad' },
+          `${i + 1}行目(${l.notes}音): `, l.morae === 0 ? 'まだ' : diff === 0 ? '✓ ぴったり' : diff > 0 ? `${diff}音多い` : `${-diff}音足りない`);
+      }),
+    );
+    fillStatus(check);
+    return h('details', { class: 'lyrics', open: lyricsOpen, onToggle: (/** @type {Event} */ e) => { lyricsOpen = /** @type {HTMLDetailsElement} */ (e.target).open; } },
+      h('summary', null, '🎤 歌詞と歌声', sung ? h('span', { class: 'tag' }, '歌声あり') : null),
+      h('p', { class: 'muted small' }, `かな(ひらがな)で、息継ぎごとに改行して書きます。この部品は ${lines.length}行で、音の数は ${counts} です。`),
+      h('textarea', {
+        class: 'lyric-input', rows: Math.max(2, lines.length), 'aria-label': `${name}の歌詞`, placeholder: lines.map((l) => 'ら'.repeat(l.notes)).join('\n'),
+        onInput: (/** @type {Event} */ e) => {
+          const value = /** @type {HTMLTextAreaElement} */ (e.target).value;
+          lyricDrafts.set(item.id, value);
+          fillStatus(assignLyrics(song, item.sectionId, value));
+        },
+      }, text),
+      status,
+      h('div', { class: 'row-actions' },
+        h('button', {
+          type: 'button', class: 'secondary',
+          onClick: () => {
+            const value = lyricDrafts.get(item.id) ?? saved;
+            const r = setLyrics(song, item.id, value);
+            lyricsOpen = true;
+            if (apply(r, { label: `${name}の歌詞`, keepPlaying: true })) {
+              lyricDrafts.delete(item.id);
+              showToast(r.ok && r.warnings.length ? `歌詞を入れました(${r.warnings.length}行、音数が合っていません)` : '歌詞を入れました');
+              render();
+            }
+          },
+        }, '歌詞を入れる'),
+        h('button', { type: 'button', class: 'primary', disabled: singing !== null, onClick: () => sing(item.id, name) }, singing === item.id ? '歌わせています…' : '🎤 歌わせる'),
+      ),
+      singers && h('label', { class: 'field singer' },
+        h('span', { class: 'field-label' }, '歌い手'),
+        h('select', {
+          onChange: (/** @type {Event} */ e) => apply(setConnectorSettings(song, 'voicevox', { singer: Number(/** @type {HTMLSelectElement} */ (e.target).value) }), { label: '歌い手を変える', keepPlaying: true }),
+        }, singers.map((sg) => h('option', { value: sg.id, selected: sg.id === singerOf(song) }, sg.label))),
+      ),
+      h('p', { class: 'muted small' }, '歌声は、このPCで動かしている VOICEVOX が作ります(iPad・スマホでは作れません)。歌詞がない音は「ら」で歌います。作った歌声はページを閉じると消えるので、その時はもう一度歌わせてください。'),
+    );
+  }
+
+  /**
+   * 並び順の1か所を VOICEVOX に歌わせて、できたら聴く
+   * @param {string} itemId
+   * @param {string} name
+   */
+  async function sing(itemId, name) {
+    if (!history || singing) return;
+    const song = history.current;
+    singing = itemId;
+    lyricsOpen = true;
+    render();
+    try {
+      const available = await voicevoxAvailable();
+      if (!available.ok) {
+        showToast(available.reason, undefined, true);
+        return;
+      }
+      if (!singers) singers = await listSingers().catch(() => null);
+      const vocal = await singItem(song, itemId);
+      if (!vocal) {
+        showToast('この部品には歌うメロディがありません', undefined, true);
+        return;
+      }
+      setVocal(song, itemId, vocal);
+      showToast(`${name}の歌声ができました`);
+      singing = null;
+      render();
+      playSection(itemId);
+    } catch (e) {
+      showToast(`${e instanceof Error ? e.message : '歌声を作れませんでした'}。VOICEVOX が起動しているか確かめて、もう一度試してください`, undefined, true);
+    } finally {
+      singing = null;
+      render();
+    }
   }
 
   /** 楽器ごとの鳴らす・音量・音色 @param {Song} song */

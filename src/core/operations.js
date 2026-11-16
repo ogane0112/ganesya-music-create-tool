@@ -4,6 +4,7 @@ import { isInstrument, isMood, isSectionKind, TEMPO_MAX, TEMPO_MIN } from './cat
 import { collectIds, createIdFactory } from './ids.js';
 import { isValidTonic, keyPrefersFlat, mod12, pitchClassOf, ticksPerBar, transposeChord } from './theory.js';
 import { validateSong } from './validate.js';
+import { assignLyrics } from './lyrics.js';
 import { createEmptySong } from './song.js';
 import { generateDraft } from './composer/index.js';
 
@@ -318,6 +319,53 @@ function cut(items, from, to) {
   return items
     .filter((x) => x.start >= from && x.start < to)
     .map((x) => ({ ...x, start: x.start - from, length: Math.min(x.length, to - x.start) }));
+}
+
+// ---- 歌詞を入れる ----
+
+/**
+ * 並び順の1か所に歌詞を割り当てる。かな(ひらがな・カタカナ)で書き、行はフレーズ(息継ぎまで)ごとに改行か / で区切る。
+ * 音数が合わなくても入る分だけ入れ、ズレは注意書きで知らせる。strict なら、ズレや読めない字があれば断る(AI向け)
+ * @param {Song} song
+ * @param {string} itemId
+ * @param {string} text 空なら歌詞を消す
+ * @param {{ strict?: boolean }} [opts]
+ * @returns {SongResult}
+ */
+export function setLyrics(song, itemId, text, opts = {}) {
+  const next = clone(song);
+  const item = next.arrangement.find((a) => a.id === itemId);
+  if (!item) return fail(`並び順の項目が見つかりません: ${itemId}`, '曲を読み込み直してください', 'not_found');
+  const r = assignLyrics(next, item.sectionId, text);
+  /** @type {string[]} */
+  const warnings = [];
+  if (r.invalid.length) warnings.push(`かなで書いてください(読めない字: ${r.invalid.slice(0, 8).join(' ')})`);
+  r.lines.forEach((l, i) => {
+    if (l.morae > l.notes) warnings.push(`${i + 1}行目「${l.kana}」: ${l.morae - l.notes}音多い(メロディは${l.notes}音)`);
+    else if (l.morae < l.notes) warnings.push(`${i + 1}行目「${l.kana}」: ${l.notes - l.morae}音足りない(メロディは${l.notes}音)`);
+  });
+  if (opts.strict && warnings.length && text.trim()) {
+    return fail(`歌詞の音数がメロディと合いません\n${warnings.join('\n')}`, `行ごとの音数を ${r.lines.map((l) => l.notes).join('・')} に合わせてください(小さい「ゃゅょ」は前の字と合わせて1音、「ん」「っ」は1音)`, 'lyrics_mismatch', { lines: r.lines });
+  }
+  item.lyrics = r.lyrics;
+  const done = finish(next);
+  return done.ok ? { ...done, warnings } : done;
+}
+
+// ---- 接続口の設定 ----
+
+/**
+ * 接続口だけが使う設定を、曲の extensions に入れる(例: VOICEVOX の歌い手)
+ * @param {Song} song
+ * @param {string} connectorId
+ * @param {Record<string, unknown>} settings 今の設定に上書きする
+ * @returns {SongResult}
+ */
+export function setConnectorSettings(song, connectorId, settings) {
+  const next = clone(song);
+  const current = /** @type {Record<string, unknown>} */ (next.extensions[connectorId] ?? {});
+  next.extensions[connectorId] = { ...current, ...settings };
+  return finish(next);
 }
 
 // ---- 曲の設定を変える ----

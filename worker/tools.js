@@ -4,8 +4,9 @@ import { authorSection, createAuthoredSong, resolveNotes } from '../src/core/aut
 import { formatChords, formatMelody, NotationError } from '../src/core/notation.js';
 import {
   addArrangementItem, addSection, createDraftSong, moveArrangementItem, registerSong, removeArrangementItem, renameSection,
-  replaceSection, updateSongSettings,
+  replaceSection, setLyrics, updateSongSettings,
 } from '../src/core/operations.js';
+import { lyricLines } from '../src/core/lyrics.js';
 import { keyPrefersFlat, pitchName, ticksPerBar } from '../src/core/theory.js';
 import { buildTimeline } from '../src/core/timeline.js';
 import { ticksToSeconds } from '../src/core/theory.js';
@@ -86,7 +87,11 @@ export function summarize(id, song) {
     mood: song.mood,
     seconds: Math.round(ticksToSeconds(tl.totalTicks, song.tempo)),
     tracks: song.tracks.map((t) => ({ id: t.id, role: t.role, name: t.name, instrument: t.instrument, volume: t.volume, muted: !!t.muted })),
-    arrangement: song.arrangement.map((a, index) => ({ index, itemId: a.id, sectionId: a.sectionId, name: song.sections.find((s) => s.id === a.sectionId)?.name })),
+    // lyrics はフレーズ(息継ぎまで)ごとの行。notes がその行に必要な音数、kana が今の歌詞
+    arrangement: song.arrangement.map((a, index) => ({
+      index, itemId: a.id, sectionId: a.sectionId, name: song.sections.find((s) => s.id === a.sectionId)?.name,
+      lyrics: lyricLines(song, a.id).map((l) => ({ notes: l.notes, kana: l.kana })),
+    })),
     sections: song.sections.map((s) => ({
       sectionId: s.id,
       name: s.name,
@@ -336,6 +341,28 @@ export const TOOLS = [
           throw new ToolError({ code: 'invalid_arguments', message: `知らない action です: ${args.action}`, hint: 'add / add_section / remove / move / rename から選んでください' });
       }
       return save(ctx, args.songId, unwrap(r, song), args.revision);
+    },
+  },
+  {
+    name: 'set_lyrics',
+    description: '並び順の1か所(itemId)に歌詞を入れて保存する。歌詞はかな(ひらがな・カタカナ)で、フレーズ(息継ぎまで)ごとに1行。各行の音数は get_song の arrangement[].lyrics[].notes に合わせる(小さい「ゃゅょ」は前の字と合わせて1音、「ん」「っ」「ー」は1音)。合わない時は、どの行が何音ずれているかを返すので直して送り直す。1番と2番は itemId が別なので、同じメロディに違う歌詞を入れられる。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...WRITE_PROPS,
+        itemId: { type: 'string', description: 'get_song の arrangement の itemId' },
+        lines: { type: 'array', items: { type: 'string' }, description: 'フレーズごとの歌詞(かな)。行数はフレーズの数と同じにする。空の配列で歌詞を消す' },
+      },
+      required: ['songId', 'revision', 'itemId', 'lines'],
+    },
+    run: async (args, ctx) => {
+      const song = await loadForWrite(ctx, args);
+      const lines = Array.isArray(args.lines) ? args.lines.map(String) : [];
+      const expected = lyricLines(song, args.itemId).length;
+      if (lines.length && lines.length !== expected) {
+        throw new ToolError({ code: 'lyrics_mismatch', message: `行数が合いません(渡された行: ${lines.length}、フレーズ: ${expected})`, hint: `get_song の arrangement[].lyrics を見て、${expected}行にしてください` });
+      }
+      return save(ctx, args.songId, unwrap(setLyrics(song, args.itemId, lines.join('\n'), { strict: true }), song), args.revision);
     },
   },
   {

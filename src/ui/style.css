@@ -208,3 +208,13 @@ button.wide { width: 100%; margin-bottom: 12px; }
 .keylist { list-style: none; padding: 0; margin: 0 0 10px; display: grid; gap: 4px; }
 .keylist li { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding: 2px 0 2px 4px; }
 .row-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+/* 歌詞と歌声 */
+.lyrics { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.lyrics summary { cursor: pointer; font-weight: 700; min-height: 44px; display: flex; align-items: center; gap: 8px; }
+.lyric-input { width: 100%; font: inherit; font-size: 1.05rem; line-height: 1.9; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; resize: vertical; margin-top: 8px; }
+.lyric-status { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.85rem; color: var(--muted); }
+.lyric-status .good { color: #1f8a4c; }
+.lyric-status .bad { color: var(--danger); font-weight: 700; }
+.singer { margin-top: 12px; max-width: 360px; }
+@media (prefers-color-scheme: dark) { .lyric-status .good { color: #6fd39a; } }

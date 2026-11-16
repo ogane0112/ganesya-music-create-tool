@@ -3,6 +3,7 @@ import { performSong } from '../core/performance.js';
 import { ticksToSeconds } from '../core/theory.js';
 import { createMix, playNote, updateMix } from './render.js';
 import { prepareSong } from './note-cache.js';
+import { prepareVocals, withVocals } from './vocals.js';
 
 /** @typedef {import('../core/types.js').Song} Song */
 
@@ -37,6 +38,9 @@ export class Player {
     this.timeline = null;
     /** @type {import('../core/performance.js').PerformedNote[]} 鳴らす順に並んだ音 */
     this.notes = [];
+    /** @type {ReturnType<typeof withVocals>['clips']} 歌声 */
+    this.clips = [];
+    this.clipCursor = 0;
     /** @type {ReturnType<typeof setInterval> | null} */
     this.timer = null;
     this.loop = false;
@@ -74,6 +78,7 @@ export class Player {
     this.emit();
     try {
       await prepareSong(song, ctx.sampleRate, { itemIds: opts.itemIds });
+      await prepareVocals(song, ctx.sampleRate, opts.itemIds);
     } finally {
       this.preparing = false;
     }
@@ -82,7 +87,10 @@ export class Player {
     this.loop = !!opts.loop;
     const performed = performSong(song, { itemIds: opts.itemIds });
     this.timeline = performed.timeline;
-    this.notes = performed.notes;
+    const sung = withVocals(song, performed, ctx.sampleRate);
+    this.notes = sung.notes;
+    this.clips = sung.clips;
+    this.clipCursor = 0;
     if (this.timeline.totalTicks === 0) return;
     this.mix = createMix(ctx, song, ctx.destination);
     this.startTime = ctx.currentTime + START_DELAY;
@@ -120,6 +128,22 @@ export class Player {
     if (!ctx || !timeline || !song || !mix) return;
     const loopSeconds = ticksToSeconds(timeline.totalTicks, song.tempo);
     const horizon = ctx.currentTime + LOOKAHEAD;
+    // 歌声(部品ごとの長い音声)。頭の休みの分だけ早く始まるので、少し先まで見て予約する
+    while (this.clipCursor < this.clips.length) {
+      const clip = this.clips[this.clipCursor];
+      const at = this.startTime + clip.time;
+      if (at > horizon + 1) break;
+      this.clipCursor++;
+      const track = mix.tracks.get(clip.trackId);
+      if (!track) continue;
+      const src = ctx.createBufferSource();
+      src.buffer = clip.buffer;
+      const g = ctx.createGain();
+      g.gain.value = clip.gain;
+      src.connect(g).connect(track.duck);
+      const when = Math.max(at, ctx.currentTime);
+      src.start(when, when - at);
+    }
     for (;;) {
       if (this.cursor >= this.notes.length) {
         const endTime = this.startTime + loopSeconds;
@@ -130,6 +154,7 @@ export class Player {
         if (endTime > horizon) return;
         this.startTime = endTime;
         this.cursor = 0;
+        this.clipCursor = 0;
       }
       const ev = this.notes[this.cursor];
       const time = this.startTime + ev.time;

@@ -5,6 +5,7 @@ import { performSong } from '../core/performance.js';
 import { createMix, DUCK, KICKS } from './render.js';
 import { lookupNote, prepareSong } from './note-cache.js';
 import { master } from './master.js';
+import { prepareVocals, withVocals } from './vocals.js';
 import { encodeWav } from './wav-encode.js';
 
 /** @typedef {import('../core/types.js').Song} Song */
@@ -20,7 +21,10 @@ const LEAD_SECONDS = 0.05;
 export async function renderSong(song, opts = {}) {
   const sampleRate = opts.sampleRate ?? 44100;
   await prepareSong(song, sampleRate, { itemIds: opts.itemIds, onProgress: opts.onProgress });
-  const { notes, totalSeconds } = performSong(song, { itemIds: opts.itemIds });
+  await prepareVocals(song, sampleRate, opts.itemIds);
+  const performed = performSong(song, { itemIds: opts.itemIds });
+  const { totalSeconds } = performed;
+  const { notes, clips } = withVocals(song, performed, sampleRate);
   const seconds = LEAD_SECONDS + totalSeconds + TAIL_SECONDS;
   const frames = Math.ceil(seconds * sampleRate);
 
@@ -50,6 +54,18 @@ export async function renderSong(song, opts = {}) {
       const src = hit.buffer.getChannelData(c);
       const dst = stem[c];
       for (let i = 0; i < n; i++) dst[at + i] += src[i] * hit.gain;
+    }
+  }
+
+  // 歌声を歌メロのパートに置く
+  for (const clip of clips) {
+    let stem = stems.get(clip.trackId);
+    if (!stem) stems.set(clip.trackId, (stem = [new Float32Array(frames), new Float32Array(frames)]));
+    const at = Math.round((LEAD_SECONDS + clip.time) * sampleRate);
+    const src = clip.buffer.getChannelData(0);
+    for (let i = Math.max(0, -at); i < src.length && at + i < frames; i++) {
+      stem[0][at + i] += src[i] * clip.gain;
+      stem[1][at + i] += src[i] * clip.gain;
     }
   }
 

@@ -50,14 +50,14 @@ function guideExample() {
 }
 
 describe('MCP', () => {
-  it('つなぐ、道具の一覧(9個)、知らない呼び方', async () => {
+  it('つなぐ、道具の一覧(10個)、知らない呼び方', async () => {
     const { rpc } = client();
     const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } });
     expect(init.result.protocolVersion).toBe('2025-06-18');
     expect(init.result.capabilities.tools).toBeDefined();
     const list = await rpc('tools/list');
     expect(list.result.tools.map((/** @type {any} */ t) => t.name)).toEqual([
-      'get_format_guide', 'list_songs', 'get_song', 'create_song', 'generate_alternatives', 'replace_section', 'update_arrangement', 'update_song_settings', 'export_midi',
+      'get_format_guide', 'list_songs', 'get_song', 'create_song', 'generate_alternatives', 'replace_section', 'update_arrangement', 'set_lyrics', 'update_song_settings', 'export_midi',
     ]);
     for (const t of list.result.tools) expect(t.inputSchema.type).toBe('object');
     expect((await rpc('nope')).error.code).toBe(-32601);
@@ -133,6 +133,32 @@ describe('MCP', () => {
     expect(atob(midi.content[1].resource.blob).slice(0, 4)).toBe('MThd');
 
     expect((await call('list_songs')).data.songs).toHaveLength(1);
+  });
+
+  it('歌詞:音数が合えば入り、合わなければ行ごとのズレを返す。1番と2番で別の歌詞', async () => {
+    const { call } = client();
+    const created = (await call('create_song', {
+      title: 'うた', mood: 'setsunai', tempo: 96, key: { tonic: 'A', mode: 'minor' },
+      sections: [{ name: 'Aメロ', kind: 'verse', bars: 4, chords: 'Am:8 F:8', melody: 'A4:1 C5:1 E5:1 D5:0.5 C5:1.5 r:3 | A4:0.5 A4:0.5 C5:1 E5:1 D5:1 C5:1 A4:2 r:1' }],
+    })).data;
+    const item = created.arrangement[0];
+    expect(item.lyrics).toEqual([{ notes: 5, kana: '' }, { notes: 7, kana: '' }]);
+
+    const bad = await call('set_lyrics', { songId: created.songId, revision: 1, itemId: item.itemId, lines: ['よるの', 'ひとりであるいたみち'] });
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toMatch(/1行目.*2音足りない/);
+    expect(bad.text).toMatch(/2行目.*3音多い/);
+    expect((await call('set_lyrics', { songId: created.songId, revision: 1, itemId: item.itemId, lines: ['よるのまち'] })).text).toMatch('行数');
+    expect((await call('set_lyrics', { songId: created.songId, revision: 1, itemId: item.itemId, lines: ['夜の街角', 'ひとりであるく'] })).isError).toBe(true);
+
+    const ok = (await call('set_lyrics', { songId: created.songId, revision: 1, itemId: item.itemId, lines: ['よるのまち', 'ひとりであるく'] })).data;
+    expect(ok.arrangement[0].lyrics.map((/** @type {any} */ l) => l.kana)).toEqual(['よるのまち', 'ひとりであるく']);
+
+    // 2番:同じ部品をもう一度並べて、別の歌詞
+    const twice = (await call('update_arrangement', { songId: created.songId, revision: ok.revision, action: 'add', sectionId: item.sectionId })).data;
+    const second = twice.arrangement[1];
+    const two = (await call('set_lyrics', { songId: created.songId, revision: twice.revision, itemId: second.itemId, lines: ['あさのかぜ', 'ふたりでわらう'] })).data;
+    expect(two.arrangement.map((/** @type {any} */ a) => a.lyrics[0].kana)).toEqual(['よるのまち', 'あさのかぜ']);
   });
 
   it('叩き台を作る・ない曲・足りない引数', async () => {

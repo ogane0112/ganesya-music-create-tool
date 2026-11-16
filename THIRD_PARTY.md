@@ -36,3 +36,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+
+## 歌声: VOICEVOX
+
+歌声は、利用者のPCで動かす VOICEVOX(https://voicevox.hiroshiba.jp/)が作ります。このアプリには同梱していません。
+作った歌声を公開・配信する時は、VOICEVOX と各キャラクターの利用規約に従ってください
+(例:「VOICEVOX:ずんだもん」のようなクレジット表記が必要。商用の可否・条件はキャラクターごとに違う)。
