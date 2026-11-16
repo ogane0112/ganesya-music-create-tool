@@ -5,7 +5,7 @@ import { SYNTH_INSTRUMENTS } from './synth.js';
 
 /** 録音した音で鳴らす楽器と、その音量・消え方 */
 const SAMPLED = /** @type {Record<string, import('./sampled.js').SampleOptions>} */ ({
-  piano: { gain: 0.6, release: 0.25 },
+  piano: { gain: 0.6, release: 0.45 },
   'electric-piano': { gain: 0.42, release: 0.25 },
   koto: { gain: 0.7, release: 0.3 },
   'acoustic-guitar': { gain: 0.6, release: 0.2 },

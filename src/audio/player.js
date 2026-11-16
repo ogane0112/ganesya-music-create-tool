@@ -1,5 +1,5 @@
 // 再生の仕組み(C1)。Web Audio の時計で少し先までを予約していく方式で、テンポどおりにずれずに鳴らす。
-import { buildTimeline } from '../core/timeline.js';
+import { performSong } from '../core/performance.js';
 import { ticksToSeconds } from '../core/theory.js';
 import { createMix, playNote, updateMix } from './render.js';
 import { prepareSong } from './note-cache.js';
@@ -33,8 +33,10 @@ export class Player {
     this.song = null;
     /** @type {ReturnType<typeof createMix> | null} */
     this.mix = null;
-    /** @type {ReturnType<typeof buildTimeline> | null} */
+    /** @type {import('../core/timeline.js').Timeline | null} */
     this.timeline = null;
+    /** @type {import('../core/performance.js').PerformedNote[]} 鳴らす順に並んだ音 */
+    this.notes = [];
     /** @type {ReturnType<typeof setInterval> | null} */
     this.timer = null;
     this.loop = false;
@@ -78,7 +80,9 @@ export class Player {
     if (id !== this.playId) return; // 用意している間に止められた・別の再生が始まった
     this.song = song;
     this.loop = !!opts.loop;
-    this.timeline = buildTimeline(song, { itemIds: opts.itemIds });
+    const performed = performSong(song, { itemIds: opts.itemIds });
+    this.timeline = performed.timeline;
+    this.notes = performed.notes;
     if (this.timeline.totalTicks === 0) return;
     this.mix = createMix(ctx, song, ctx.destination);
     this.startTime = ctx.currentTime + START_DELAY;
@@ -117,7 +121,7 @@ export class Player {
     const loopSeconds = ticksToSeconds(timeline.totalTicks, song.tempo);
     const horizon = ctx.currentTime + LOOKAHEAD;
     for (;;) {
-      if (this.cursor >= timeline.events.length) {
+      if (this.cursor >= this.notes.length) {
         const endTime = this.startTime + loopSeconds;
         if (!this.loop) {
           if (ctx.currentTime > endTime + 0.3) this.stop();
@@ -127,12 +131,12 @@ export class Player {
         this.startTime = endTime;
         this.cursor = 0;
       }
-      const ev = timeline.events[this.cursor];
-      const time = this.startTime + ticksToSeconds(ev.tick, song.tempo);
+      const ev = this.notes[this.cursor];
+      const time = this.startTime + ev.time;
       if (time > horizon) return;
       this.cursor++;
       if (time < ctx.currentTime - 0.02) continue; // 間に合わなかった音は飛ばす
-      playNote(mix, ev.trackId, { time, duration: ticksToSeconds(ev.length, song.tempo), pitch: ev.pitch, velocity: ev.velocity });
+      playNote(mix, ev.trackId, { time, duration: ev.duration, pitch: ev.pitch, velocity: ev.velocity });
     }
   }
 

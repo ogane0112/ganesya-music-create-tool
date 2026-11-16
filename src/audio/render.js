@@ -6,15 +6,18 @@ import { cachedVoice } from './note-cache.js';
 /** @typedef {import('../core/types.js').TrackRole} TrackRole */
 
 /** 役割ごとの左右の位置と残響の量 */
-// lowCut: これより低い音を削る(Hz)。ベースとバスドラムの居場所を空けて、濁りを取る
-const ROLE_MIX = /** @type {Record<TrackRole, { pan: number, reverb: number, delay: number, lowCut: number }>} */ ({
-  vocal: { pan: 0, reverb: 0.2, delay: 0.14, lowCut: 120 },
-  chords: { pan: -0.35, reverb: 0.16, delay: 0, lowCut: 110 },
-  bass: { pan: 0, reverb: 0, delay: 0, lowCut: 0 },
-  drums: { pan: 0, reverb: 0.07, delay: 0, lowCut: 0 },
-  pad: { pan: 0.3, reverb: 0.3, delay: 0, lowCut: 180 },
-  lead: { pan: 0.35, reverb: 0.2, delay: 0.12, lowCut: 150 },
-  other: { pan: -0.25, reverb: 0.26, delay: 0.18, lowCut: 200 },
+// 奥行きは「響きの量」で描き分ける。
+//   room  : 同じ部屋で鳴っている感じ(短い響き)。生の楽器に多め → ばらばらの音が1つの演奏にまとまる
+//   reverb: 遠くまで広がる長い響き。多いほど奥に聞こえる(背景は奥、歌とドラムは手前)
+//   lowCut: これより低い音を削る(Hz)。ベースとバスドラムの居場所を空けて、濁りを取る
+const ROLE_MIX = /** @type {Record<TrackRole, { pan: number, room: number, reverb: number, delay: number, lowCut: number }>} */ ({
+  vocal: { pan: 0, room: 0.1, reverb: 0.16, delay: 0.12, lowCut: 120 },
+  chords: { pan: -0.35, room: 0.2, reverb: 0.12, delay: 0, lowCut: 110 },
+  bass: { pan: 0, room: 0.06, reverb: 0, delay: 0, lowCut: 0 },
+  drums: { pan: 0, room: 0.24, reverb: 0.05, delay: 0, lowCut: 0 },
+  pad: { pan: 0.3, room: 0, reverb: 0.4, delay: 0, lowCut: 180 },
+  lead: { pan: 0.35, room: 0.12, reverb: 0.2, delay: 0.1, lowCut: 150 },
+  other: { pan: -0.25, room: 0.1, reverb: 0.3, delay: 0.16, lowCut: 200 },
 });
 
 export const KICKS = new Set([35, 36]);
@@ -72,6 +75,34 @@ function impulseResponse(ctx) {
   return b;
 }
 
+/** @type {WeakMap<BaseAudioContext, AudioBuffer>} */
+const roomCache = new WeakMap();
+/**
+ * 小さな部屋の響き(0.4秒ほど。壁からの跳ね返りが中心)
+ * @param {BaseAudioContext} ctx
+ */
+function roomResponse(ctx) {
+  let b = roomCache.get(ctx);
+  if (b) return b;
+  const len = Math.floor(ctx.sampleRate * 0.45);
+  b = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const d = b.getChannelData(c);
+    let lp = 0;
+    for (let i = Math.floor(0.004 * ctx.sampleRate); i < len; i++) {
+      const t = i / ctx.sampleRate;
+      lp += 0.5 * (Math.random() * 2 - 1 - lp);
+      d[i] = lp * Math.exp(-t * 13);
+    }
+    for (const [ms, amp] of [[7, 0.7], [11, -0.55], [17, 0.45], [23, -0.38], [29, 0.3], [37, -0.22]]) {
+      const i = Math.floor(((ms + c * 2.3) / 1000) * ctx.sampleRate);
+      d[i] += amp;
+    }
+  }
+  roomCache.set(ctx, b);
+  return b;
+}
+
 /**
  * パートごとの音量つまみと楽器を用意する
  * @param {BaseAudioContext} ctx
@@ -122,6 +153,15 @@ export function createMix(ctx, song, destination, opts = {}) {
   reverbCut.frequency.value = 280;
   reverb.connect(reverbCut).connect(reverbReturn).connect(master);
 
+  const room = ctx.createConvolver();
+  room.buffer = roomResponse(ctx);
+  const roomReturn = ctx.createGain();
+  roomReturn.gain.value = 0.7;
+  const roomCut = ctx.createBiquadFilter();
+  roomCut.type = 'highpass';
+  roomCut.frequency.value = 180;
+  room.connect(roomCut).connect(roomReturn).connect(master);
+
   // 山びこ(ディレイ):付点8分で左右に跳ね返る
   const beat = 60 / song.tempo;
   const delayIn = ctx.createGain();
@@ -160,6 +200,11 @@ export function createMix(ctx, song, destination, opts = {}) {
       duck.connect(cut).connect(gain).connect(pan).connect(master);
     } else {
       duck.connect(gain).connect(pan).connect(master);
+    }
+    if (role.room > 0) {
+      const send = ctx.createGain();
+      send.gain.value = role.room;
+      pan.connect(send).connect(room);
     }
     if (role.reverb > 0) {
       const send = ctx.createGain();

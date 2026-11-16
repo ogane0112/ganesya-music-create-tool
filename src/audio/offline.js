@@ -1,8 +1,7 @@
 // 曲全体を音のデータにする(C3)。再生と同じ作り置きの音・同じ音量つまみ・同じ残響を使う。
 // 速くするため、音符はパートごとに JavaScript で足し合わせてから、エフェクトだけを OfflineAudioContext に通す
 // (音符ごとに Web Audio の部品を作ると、1曲で千を超える部品になり遅い)。
-import { buildTimeline } from '../core/timeline.js';
-import { ticksToSeconds } from '../core/theory.js';
+import { performSong } from '../core/performance.js';
 import { createMix, DUCK, KICKS } from './render.js';
 import { lookupNote, prepareSong } from './note-cache.js';
 import { master } from './master.js';
@@ -21,8 +20,8 @@ const LEAD_SECONDS = 0.05;
 export async function renderSong(song, opts = {}) {
   const sampleRate = opts.sampleRate ?? 44100;
   await prepareSong(song, sampleRate, { itemIds: opts.itemIds, onProgress: opts.onProgress });
-  const timeline = buildTimeline(song, { itemIds: opts.itemIds });
-  const seconds = LEAD_SECONDS + ticksToSeconds(timeline.totalTicks, song.tempo) + TAIL_SECONDS;
+  const { notes, totalSeconds } = performSong(song, { itemIds: opts.itemIds });
+  const seconds = LEAD_SECONDS + totalSeconds + TAIL_SECONDS;
   const frames = Math.ceil(seconds * sampleRate);
 
   // パートごとに音符を足し合わせる
@@ -34,14 +33,14 @@ export async function renderSong(song, opts = {}) {
   const kicks = [];
   const instrumentOf = new Map(song.tracks.map((t) => [t.id, t.instrument]));
   const drumTracks = new Set(song.tracks.filter((t) => t.role === 'drums').map((t) => t.id));
-  for (const ev of timeline.events) {
+  for (const ev of notes) {
     const instrument = instrumentOf.get(ev.trackId);
     if (!instrument) continue;
-    const time = LEAD_SECONDS + ticksToSeconds(ev.tick, song.tempo);
+    const time = LEAD_SECONDS + ev.time;
     if (drumTracks.has(ev.trackId) && KICKS.has(ev.pitch)) kicks.push(time);
     const round = rounds.get(ev.trackId) ?? 0;
     rounds.set(ev.trackId, round + 1);
-    const hit = lookupNote(instrument, sampleRate, { time, duration: ticksToSeconds(ev.length, song.tempo), pitch: ev.pitch, velocity: ev.velocity }, round);
+    const hit = lookupNote(instrument, sampleRate, { time, duration: ev.duration, pitch: ev.pitch, velocity: ev.velocity }, round);
     if (!hit) continue;
     let stem = stems.get(ev.trackId);
     if (!stem) stems.set(ev.trackId, (stem = [new Float32Array(frames), new Float32Array(frames)]));

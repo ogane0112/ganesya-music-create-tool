@@ -6,7 +6,7 @@
 /** @typedef {import('./synth.js').NoteEvent} NoteEvent */
 
 /** 音源の置き場(版を変えたらここを変える。ブラウザに長く覚えさせるため) */
-export const SOUNDS_BASE = '/sounds/v2';
+export const SOUNDS_BASE = '/sounds/v3';
 
 /**
  * @typedef {object} SampleOptions
@@ -96,10 +96,12 @@ export function sampledInstrument(fallback, o) {
           if (!s) return spare.play(note);
           const src = ctx.createBufferSource();
           src.buffer = s.buffer;
-          src.playbackRate.value = Math.pow(2, (note.pitch - s.pitch) / 12);
+          // 打楽器は叩くたびに、高さと大きさがほんの少し違う(同じ音の連続を機械的にしない)
+          const vary = o.exact ? 1 + (Math.random() * 2 - 1) * 0.006 : 1;
+          src.playbackRate.value = Math.pow(2, (note.pitch - s.pitch) / 12) * vary;
           const g = ctx.createGain();
           // 録音そのものが強さに応じた大きさなので、録音した強さとの差の分だけ合わせる
-          g.gain.setValueAtTime(Math.pow(note.velocity / s.vel, 1.3), note.time);
+          g.gain.setValueAtTime(Math.pow(note.velocity / s.vel, 1.3) * (o.exact ? 1 + (Math.random() * 2 - 1) * 0.06 : 1), note.time);
           src.connect(g).connect(bus);
           src.start(note.time, s.offset);
           if (o.release > 0) {

@@ -1,12 +1,19 @@
 # 使わせてもらっているもの
 
-## 楽器の音源: FluidR3_GM
+## 楽器の音源: MuseScore_General_HQ
 
-ピアノ・ギター・ベース・ストリングス・ベル・ドラムの音は、FluidR3_GM サウンドフォントから録音して作っています
-(`scripts/build-samples.py`)。音源のファイル自体はこのリポジトリには入れず、配信先(Cloudflare KV)に置いています。
+ピアノ・エレクトリックピアノ・ギター・ベース・ストリングス・ベル・琴・ドラムの音は、MuseScore_General_HQ
+サウンドフォントから録音して作っています(`scripts/build-samples.py`)。音源のファイル自体はこのリポジトリには入れず、
+配信先(Cloudflare KV)に置いています。
 
-- 作者: Frank Wen 氏ほか
-- ライセンス: MIT
+- MuseScore_General_HQ: MIT ライセンス(Copyright © 2018-2021 S. Christian Collins)。次を含みます
+  - Splendid Grand Piano(AKAI S5000 由来、パブリックドメイン)
+  - Versilian Studios Chamber Orchestra 2 Community Edition のストリングス(CC0、Sam Gossner 氏ほか)
+  - MuseScore Drumline(CC0、S. Christian Collins 氏・Amir Oosman 氏)
+  - Fluid (R3) Mono GM(MIT、Copyright © 2014-2017 Michael Cowgill)
+  - Fluid (R3) GM(MIT、Copyright © 2000-2002, 2008 Frank Wen。下に全文)
+
+どれも商用利用・改変・再配布ができます。
 
 ```
 Copyright (c) 2000-2002, 2008 Frank Wen <getfrank@gmail.com>

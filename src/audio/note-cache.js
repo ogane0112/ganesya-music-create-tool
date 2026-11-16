@@ -1,18 +1,17 @@
 // 音符の作り置き。同じ楽器・同じ高さ・同じ長さ・近い強さの音は一度だけ合成し、
 // あとは録音した音(AudioBuffer)を貼るだけにする。リフやドラムのように同じ音が多い曲ほど速くなる。
 // 再生(AudioContext)とWAV書き出し(OfflineAudioContext)の両方で同じ作り置きを使うので、聴こえ方は同じ。
-import { buildTimeline } from '../core/timeline.js';
-import { ticksToSeconds } from '../core/theory.js';
+import { performSong } from '../core/performance.js';
 import { getInstrument } from './instruments/index.js';
 
 /** @typedef {import('../core/types.js').Song} Song */
 /** @typedef {import('./instruments/index.js').NoteEvent} NoteEvent */
 /** @typedef {import('./instruments/index.js').InstrumentVoice} InstrumentVoice */
 
-/** 強さはこの4段階で作り置き、間は音量で合わせる */
-const VELOCITY_STEPS = [48, 72, 96, 120];
-/** ドラムは同じ音ばかりだと機械的なので2通り作る */
-const DRUM_VARIANTS = 2;
+/** 強さはこの6段階で作り置き、間は音量で合わせる */
+const VELOCITY_STEPS = [40, 56, 72, 88, 104, 120];
+/** ドラムは同じ音ばかりだと機械的なので3通り作る(叩くたびに少し違う) */
+const DRUM_VARIANTS = 3;
 /** 音の終わりの後に残す余韻の最大(秒) */
 const TAIL = 2.5;
 const MAX_ENTRIES = 3000;
@@ -76,16 +75,16 @@ async function renderNote(instrument, sampleRate, pitch, duration, velocity) {
  * @param {{ itemIds?: string[], onProgress?: (done: number, total: number) => void }} [opts]
  */
 export async function prepareSong(song, sampleRate, opts = {}) {
-  const timeline = buildTimeline(song, { itemIds: opts.itemIds });
+  const { notes } = performSong(song, { itemIds: opts.itemIds });
   const instrumentOf = new Map(song.tracks.map((t) => [t.id, t.instrument]));
   // 録音した音源を使う楽器は、先に読み込んでおく(読み込めなければ合成の音で鳴る)
   await Promise.all([...new Set(instrumentOf.values())].map((id) => getInstrument(id).load?.()));
   /** @type {Map<string, () => Promise<void>>} */
   const jobs = new Map();
-  for (const ev of timeline.events) {
+  for (const ev of notes) {
     const instrument = instrumentOf.get(ev.trackId);
     if (!instrument) continue;
-    const duration = quantize(ticksToSeconds(ev.length, song.tempo));
+    const duration = quantize(ev.duration);
     const velocity = velocityStep(ev.velocity);
     const variants = instrument === 'drums' ? DRUM_VARIANTS : 1;
     for (let variant = 0; variant < variants; variant++) {
