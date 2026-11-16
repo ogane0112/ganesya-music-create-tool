@@ -1,9 +1,13 @@
-// Cloudflare Workers の設定。今は画面を配るだけ(worker/index.js)。保存用API・MCP は E1〜E4 で足す。
+// Cloudflare Workers の設定。画面のファイル、保存用API(/api)、MCP(/mcp)を1つの Worker で配る。
 // 画面のファイルは scripts/embed-assets.mjs でスクリプトに埋め込んでいる(この開発環境では静的ファイルのアップロードが通らないため)。
+// 合言葉(ACCESS_KEY)は `wrangler secret put ACCESS_KEY` で設定する。手元で動かす時は .dev.vars に書く。
 {
   "name": "ganesya-music",
   "main": "worker/index.js",
   "compatibility_date": "2026-11-01",
   "workers_dev": true,
-  "preview_urls": false
+  "preview_urls": false,
+  "d1_databases": [
+    { "binding": "DB", "database_name": "ganesya-music", "database_id": "5f35893c-adea-415c-8e2b-2735402e09c3", "migrations_dir": "migrations" }
+  ]
 }

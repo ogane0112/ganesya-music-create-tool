@@ -3,7 +3,7 @@
 // - 再生ボタンは画面の下に固定
 // - 操作は選んだ部品にだけ出す
 // - 別案はカードをタップした瞬間に鳴り、下の「これに決める」で確定
-// 保存はまだこの端末の中だけ(サーバー保存はスプリント4)。
+// 曲はサーバーに保存する(操作のたびに自動保存)。AI(MCP)が書き換えた曲も、開き直さずに読み込む。
 import { generateAlternatives, ALTERNATIVE_TARGETS } from '../core/alternatives.js';
 import { INSTRUMENTS, MOODS, TEMPO_PRESETS } from '../core/catalog.js';
 import { History } from '../core/history.js';
@@ -16,6 +16,7 @@ import { validateSong } from '../core/validate.js';
 import { prepareSong } from '../audio/note-cache.js';
 import { renderSongToWav } from '../audio/offline.js';
 import { Player } from '../audio/player.js';
+import { api, ApiError, getAccessKey, setAccessKey } from './api.js';
 import { h, replace } from './dom.js';
 import { sectionThumb } from './thumb.js';
 
@@ -24,7 +25,10 @@ import { sectionThumb } from './thumb.js';
 /** @typedef {import('../core/types.js').AppError} AppError */
 /** @typedef {import('../core/alternatives.js').AlternativeTarget} AlternativeTarget */
 
-const STORAGE_KEY = 'ganesya.prototype.song';
+/** サーバー保存の前に端末の中に覚えていた曲(あれば一度だけサーバーへ移す) */
+const OLD_STORAGE_KEY = 'ganesya.prototype.song';
+/** 開いている曲が他(AIなど)で更新されていないかを確かめる間隔 */
+const POLL_MS = 8000;
 
 /** 雰囲気の見せ方 */
 const MOOD_CARDS = /** @type {Record<Mood, { icon: string, text: string }>} */ ({
@@ -55,7 +59,18 @@ export function mountApp(root) {
   const player = new Player();
   /** @type {History | null} */
   let history = null;
-  let creating = false; // 曲があっても新規作成の画面を出す
+  /** @type {'key' | 'list' | 'create' | 'editor'} */
+  let screen = getAccessKey() ? 'list' : 'key';
+  /** @type {{ id: string, title: string, updatedAt: string, revision: number }[] | null} 曲の一覧(null は読み込み中) */
+  let songs = null;
+  /** @type {string | null} 開いている曲のID */
+  let songId = null;
+  let serverRevision = 0;
+  /** @type {'saved' | 'saving' | 'dirty' | 'error' | 'conflict'} */
+  let saveState = 'saved';
+  let saving = false;
+  let busy = false; // 作成・読み込みの途中
+  let keyError = '';
   /** @type {string | null} */
   let selectedId = null;
   let loop = false;
@@ -73,11 +88,6 @@ export function mountApp(root) {
   let wavStatus = null;
   const draft = { title: '', mood: /** @type {Mood} */ ('wafu-edm'), tempo: /** @type {'slow' | 'normal' | 'fast'} */ ('normal') };
 
-  const saved = loadSaved();
-  if (saved) {
-    history = new History(saved);
-    selectedId = saved.arrangement[0]?.id ?? null;
-  }
 
   // ---- 再生の表示(作り直さずに、その場で書き換える) ----
   player.subscribe((s) => {
@@ -134,7 +144,7 @@ export function mountApp(root) {
     if (!history) history = new History(r.value);
     else history.push(r.value, o.label);
     if (!r.value.arrangement.some((a) => a.id === selectedId)) selectedId = r.value.arrangement[0]?.id ?? null;
-    persist();
+    scheduleSave();
     if (o.keepPlaying) player.update(r.value);
     else stop();
     if (o.message) showToast(o.message, { label: '元に戻す', run: undo });
@@ -149,7 +159,7 @@ export function mountApp(root) {
     if (!prev) return;
     if (!prev.arrangement.some((a) => a.id === selectedId)) selectedId = prev.arrangement[0]?.id ?? null;
     stop();
-    persist();
+    scheduleSave();
     showToast(label ? `「${label}」を取り消しました` : '元に戻しました');
     render();
   }
@@ -174,13 +184,148 @@ export function mountApp(root) {
     render();
   }
 
-  function persist() {
+  // ---- サーバーとのやりとり ----
+  /** @param {unknown} e */
+  function handleApiError(e) {
+    const err = e instanceof ApiError ? e : null;
+    if (err?.status === 401) {
+      setAccessKey('');
+      keyError = '合言葉が違うようです。もう一度入れてください';
+      screen = 'key';
+      stop();
+      render();
+      return;
+    }
+    showError(err?.error ?? { code: 'unknown', message: '問題が起きました', hint: 'もう一度試してください' });
+  }
+
+  async function loadList() {
+    screen = 'list';
+    songs = null;
+    render();
     try {
-      if (history) localStorage.setItem(STORAGE_KEY, JSON.stringify(history.current));
-    } catch {
-      // 保存できなくても続ける(試作)
+      await migrateOldSong();
+      songs = await api.list();
+      render();
+    } catch (e) {
+      songs = [];
+      handleApiError(e);
     }
   }
+
+  /** サーバー保存の前に端末に覚えていた曲があれば、一度だけサーバーへ移す */
+  async function migrateOldSong() {
+    let raw = null;
+    try {
+      raw = localStorage.getItem(OLD_STORAGE_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+    const r = validateSong(JSON.parse(raw), { allowOutOfKey: true });
+    if (r.ok) await api.create(r.value);
+    localStorage.removeItem(OLD_STORAGE_KEY);
+  }
+
+  /** @param {string} id */
+  async function openSong(id) {
+    if (busy) return;
+    busy = true;
+    try {
+      const { song } = await api.get(id);
+      songId = id;
+      serverRevision = song.revision;
+      history = new History(song);
+      selectedId = song.arrangement[0]?.id ?? null;
+      saveState = 'saved';
+      screen = 'editor';
+      render();
+    } catch (e) {
+      handleApiError(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** 操作のたびに自動保存する。保存中に次の変更が来たら、終わってからもう一度保存する */
+  function scheduleSave() {
+    saveState = 'dirty';
+    if (!saving) saveNow();
+  }
+
+  async function saveNow() {
+    if (!history || !songId || saving) return;
+    saving = true;
+    while (saveState === 'dirty' && history && songId) {
+      saveState = 'saving';
+      syncSaveLabel();
+      /** @type {string} */
+      const id = songId;
+      try {
+        // 「元に戻す」で戻した曲は古い revision を持つので、サーバーの最新の番号を付けて送る
+        const { song } = await api.update(id, { ...history.current, revision: serverRevision });
+        if (songId !== id) break;
+        serverRevision = song.revision;
+        if (saveState === 'saving') saveState = 'saved';
+      } catch (e) {
+        const err = e instanceof ApiError ? e : null;
+        if (err?.status === 409) {
+          saveState = 'conflict';
+          showToast('他(AIなど)で曲が更新されたため、保存できませんでした', { label: '最新を読み込む', run: () => reloadSong(true) }, true);
+          render();
+        } else if (err?.status === 401) {
+          handleApiError(e);
+        } else {
+          saveState = 'error';
+          showToast(`保存できませんでした。${err?.error.hint ?? 'もう一度試してください'}`, { label: 'もう一度保存', run: scheduleSave }, true);
+          render();
+        }
+        break;
+      }
+    }
+    saving = false;
+    syncSaveLabel();
+  }
+
+  const SAVE_LABELS = { saved: '保存済み', saving: '保存中…', dirty: '保存中…', error: '未保存(保存に失敗)', conflict: '未保存(他で更新あり)' };
+  function syncSaveLabel() {
+    const el = root.querySelector('[data-role="save"]');
+    if (!el) return;
+    el.textContent = SAVE_LABELS[saveState];
+    el.classList.toggle('warn', saveState === 'error' || saveState === 'conflict');
+  }
+
+  /**
+   * サーバーの最新を読み込む。force でなければ、新しくなっている時だけ入れ替える
+   * @param {boolean} force
+   */
+  async function reloadSong(force) {
+    if (!songId || !history) return;
+    const id = songId;
+    try {
+      const { song } = await api.get(id);
+      if (songId !== id || screen !== 'editor') return;
+      if (!force && (song.revision <= serverRevision || saveState !== 'saved')) return;
+      serverRevision = song.revision;
+      history.reset(song);
+      if (!song.arrangement.some((a) => a.id === selectedId)) selectedId = song.arrangement[0]?.id ?? null;
+      saveState = 'saved';
+      alt = null;
+      stop();
+      showToast(force ? '最新を読み込みました' : '他(AIなど)での更新を読み込みました');
+      render();
+    } catch (e) {
+      if (force) handleApiError(e);
+    }
+  }
+
+  // 開いている曲が他で更新されていないか、ときどき確かめる(AIが書き換えた曲がそのまま画面に出る)
+  setInterval(() => {
+    if (screen === 'editor' && !document.hidden && saveState === 'saved' && !alt) reloadSong(false);
+  }, POLL_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && screen === 'editor' && saveState === 'saved') reloadSong(false);
+  });
 
   // ---- 再生 ----
   function stop() {
@@ -210,15 +355,15 @@ export function mountApp(root) {
   // ---- 画面 ----
   function render() {
     const scroll = root.querySelector('.timeline')?.scrollLeft ?? 0;
-    const editing = history && !creating;
     replace(root,
-      editing && history ? editorView(history) : createView(),
+      screen === 'key' ? keyView() : screen === 'list' ? listView() : screen === 'editor' && history ? editorView(history) : createView(),
       alt && history ? alternativesSheet(history.current, alt) : null,
       toast ? toastView(toast) : null,
     );
     const tl = root.querySelector('.timeline');
     if (tl) tl.scrollLeft = scroll;
     document.body.classList.toggle('has-sheet', !!alt);
+    syncSaveLabel();
     player.emit();
   }
 
@@ -255,26 +400,139 @@ export function mountApp(root) {
           h('input', { type: 'text', value: draft.title, placeholder: '無題の曲', onInput: (/** @type {Event} */ e) => { draft.title = /** @type {HTMLInputElement} */ (e.target).value; } }),
         ),
       ),
-      history && h('p', { class: 'muted small' }, 'いま作っている曲は新しい曲に置き換わります(試作のため、覚えておけるのは1曲です)。'),
       h('div', { class: 'create-actions' },
-        history && h('button', { type: 'button', class: 'ghost', onClick: () => { creating = false; render(); } }, '← いまの曲に戻る'),
-        h('button', { type: 'button', class: 'primary big', onClick: createSong }, '♪ この雰囲気で作る'),
+        h('button', { type: 'button', class: 'ghost', onClick: loadList }, '← 曲一覧に戻る'),
+        h('button', { type: 'button', class: 'primary big', disabled: busy, onClick: createSong }, busy ? '作っています…' : '♪ この雰囲気で作る'),
       ),
     );
   }
 
-  function createSong() {
+  async function createSong() {
+    if (busy) return;
     const tempo = TEMPO_CHOICES.find((t) => t.id === draft.tempo)?.tempo ?? 100;
     const r = createDraftSong({ mood: draft.mood, tempo, title: draft.title });
     if (!r.ok) return showError(r.error);
-    stop();
-    history = new History(r.value);
-    selectedId = r.value.arrangement[0]?.id ?? null;
-    creating = false;
-    draft.title = '';
-    persist();
+    busy = true;
     render();
-    playWhole(); // 作ったらすぐ聴ける
+    // 押した直後(操作の中)に音の準備を始めておく。保存を待った後だと、iPad では音が出せないことがある
+    player.ensureContext().catch(() => {});
+    try {
+      const { id, song } = await api.create(r.value);
+      songId = id;
+      serverRevision = song.revision;
+      history = new History(song);
+      selectedId = song.arrangement[0]?.id ?? null;
+      saveState = 'saved';
+      screen = 'editor';
+      draft.title = '';
+      busy = false;
+      render();
+      playWhole(); // 作ったらすぐ聴ける
+    } catch (e) {
+      busy = false;
+      handleApiError(e);
+      render();
+    }
+  }
+
+  // ---- 合言葉(仮のログイン) ----
+  function keyView() {
+    let value = '';
+    const submit = async () => {
+      if (!value.trim() || busy) return;
+      busy = true;
+      setAccessKey(value.trim());
+      try {
+        await api.check();
+        keyError = '';
+        busy = false;
+        loadList();
+      } catch (e) {
+        busy = false;
+        const err = e instanceof ApiError ? e : null;
+        setAccessKey('');
+        keyError = err?.status === 401 ? '合言葉が違うようです。もう一度入れてください' : `${err?.error.message ?? '問題が起きました'}。${err?.error.hint ?? ''}`;
+        render();
+      }
+    };
+    return h('main', { class: 'create keyview' },
+      h('header', { class: 'create-head' },
+        h('h1', null, 'がねしゃ作曲ツール'),
+        h('p', { class: 'muted' }, '合言葉を入れると、曲の一覧が開きます。この端末では一度入れれば覚えます。'),
+      ),
+      h('form', { class: 'field-row', onSubmit: (/** @type {Event} */ e) => { e.preventDefault(); submit(); } },
+        h('label', { class: 'field grow' },
+          h('span', { class: 'field-label' }, '合言葉'),
+          h('input', { type: 'password', autocomplete: 'current-password', onInput: (/** @type {Event} */ e) => { value = /** @type {HTMLInputElement} */ (e.target).value; } }),
+        ),
+        h('button', { type: 'submit', class: 'primary big key-submit' }, '開く'),
+      ),
+      keyError && h('p', { class: 'form-error', role: 'alert' }, keyError),
+    );
+  }
+
+  // ---- 曲一覧 ----
+  function listView() {
+    const mcpUrl = `${location.origin}/mcp/${encodeURIComponent(getAccessKey())}`;
+    return h('main', { class: 'create listview' },
+      h('header', { class: 'list-head' },
+        h('h1', null, '曲一覧'),
+        h('button', { type: 'button', class: 'primary', onClick: () => { screen = 'create'; render(); } }, '＋ 新しい曲を作る'),
+      ),
+      songs === null ? h('p', { class: 'muted' }, '読み込んでいます…')
+        : songs.length === 0 ? h('p', { class: 'empty' }, 'まだ曲がありません。「新しい曲を作る」か、下の手順でAIに作ってもらいましょう。')
+          : h('ul', { class: 'songlist' },
+            songs.map((s) => h('li', null,
+              h('button', { type: 'button', class: 'song-open', onClick: () => openSong(s.id) },
+                h('strong', null, s.title),
+                h('span', { class: 'muted small' }, `更新 ${formatDate(s.updatedAt)}`),
+              ),
+              h('button', {
+                type: 'button', class: 'ghost danger', 'aria-label': `${s.title}を削除`,
+                onClick: async () => {
+                  if (!confirm(`「${s.title}」を削除しますか?(元に戻せません)`)) return;
+                  try {
+                    await api.remove(s.id);
+                    showToast(`「${s.title}」を削除しました`);
+                    loadList();
+                  } catch (e) {
+                    handleApiError(e);
+                  }
+                },
+              }, '削除'),
+            )),
+          ),
+      h('div', { class: 'list-actions' },
+        h('button', { type: 'button', class: 'ghost', onClick: loadList }, '↻ 一覧を読み込み直す'),
+      ),
+      h('section', { class: 'panel connect' },
+        h('div', { class: 'panel-head' }, h('h2', null, '🤖 AI(Claude)に曲を作ってもらう')),
+        h('ol', { class: 'steps' },
+          h('li', null, 'Claude の設定 →「コネクタ」→「カスタムコネクタを追加」を開く'),
+          h('li', null, '下のURLを貼り付けて追加する'),
+          h('li', null, 'チャットで「がねしゃ作曲ツールで、切ない曲を作って」のように頼む。できた曲はこの一覧に出ます'),
+        ),
+        h('div', { class: 'copy-row' },
+          h('input', { type: 'text', readonly: true, value: mcpUrl, 'aria-label': 'AIとつなぐURL', onFocus: (/** @type {Event} */ e) => /** @type {HTMLInputElement} */ (e.target).select() }),
+          h('button', {
+            type: 'button', class: 'secondary',
+            onClick: async () => {
+              try {
+                await navigator.clipboard.writeText(mcpUrl);
+                showToast('URLをコピーしました');
+              } catch {
+                showToast('コピーできませんでした。URLを長押しして選んでコピーしてください', undefined, true);
+              }
+              render();
+            },
+          }, 'コピー'),
+        ),
+        h('p', { class: 'muted small' }, 'このURLには合言葉が入っています。知っている人は誰でも曲を読み書きできるので、人に見せないでください。'),
+      ),
+      h('div', { class: 'list-actions' },
+        h('button', { type: 'button', class: 'ghost', onClick: () => { setAccessKey(''); keyError = ''; screen = 'key'; render(); } }, 'この端末の合言葉を忘れる(ログアウト)'),
+      ),
+    );
   }
 
   // ---- 編集 ----
@@ -285,6 +543,7 @@ export function mountApp(root) {
     const selected = song.arrangement.find((a) => a.id === selectedId) ?? song.arrangement[0];
     return h('div', { class: 'editor' },
       h('header', { class: 'appbar' },
+        h('button', { type: 'button', class: 'ghost back', 'aria-label': '曲一覧に戻る', onClick: () => { stop(); loadList(); } }, '‹ 一覧'),
         h('input', {
           class: 'title-input', type: 'text', value: song.meta.title, 'aria-label': '曲名',
           onChange: (/** @type {Event} */ e) => {
@@ -293,13 +552,14 @@ export function mountApp(root) {
             else render();
           },
         }),
+        h('span', { class: 'save-state', dataset: { role: 'save' }, role: 'status' }, ''),
         h('button', { type: 'button', class: 'ghost', disabled: !hist.canUndo, onClick: undo, title: hist.canUndo ? `「${hist.undoLabel}」を取り消す` : '' }, '↶ 元に戻す'),
         h('div', { class: 'menu-wrap' },
           h('button', { type: 'button', class: 'ghost icon', 'aria-label': 'メニュー', 'aria-expanded': String(menuOpen), onClick: () => { menuOpen = !menuOpen; render(); } }, '⋯'),
           menuOpen && h('div', { class: 'menu', role: 'menu' },
             h('button', { type: 'button', role: 'menuitem', onClick: () => { menuOpen = false; reroll(song); } }, '🎲 同じ雰囲気で作り直す'),
             h('button', { type: 'button', role: 'menuitem', disabled: !!wavStatus, onClick: () => { menuOpen = false; saveWav(song); } }, '💾 音声ファイル(WAV)で保存'),
-            h('button', { type: 'button', role: 'menuitem', onClick: () => { menuOpen = false; creating = true; stop(); render(); } }, '＋ 新しい曲を作る'),
+            h('button', { type: 'button', role: 'menuitem', onClick: () => { menuOpen = false; reloadSong(true); } }, '↻ 最新を読み込む'),
           ),
         ),
       ),
@@ -562,7 +822,7 @@ export function mountApp(root) {
   // スペースキーで再生・停止(入力中は除く)
   document.addEventListener('keydown', (e) => {
     const el = /** @type {HTMLElement | null} */ (e.target);
-    if (e.code !== 'Space' || !history || creating || alt || (el && /INPUT|SELECT|TEXTAREA|BUTTON/.test(el.tagName))) return;
+    if (e.code !== 'Space' || !history || screen !== 'editor' || alt || (el && /INPUT|SELECT|TEXTAREA|BUTTON/.test(el.tagName))) return;
     e.preventDefault();
     if (player.playing) stop();
     else playWhole();
@@ -575,18 +835,14 @@ export function mountApp(root) {
   });
 
   render();
+  if (screen === 'list') loadList();
 }
 
-/** @returns {Song | null} */
-function loadSaved() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const r = validateSong(JSON.parse(raw), { allowOutOfKey: true });
-    return r.ok ? r.value : null;
-  } catch {
-    return null;
-  }
+/** @param {string} iso */
+function formatDate(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 /** @param {number} s */
