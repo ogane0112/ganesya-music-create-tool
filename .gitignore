@@ -4,3 +4,4 @@ dist/
 .dev.vars
 *.log
 samples/
+worker/generated-assets.js

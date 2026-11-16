@@ -119,3 +119,11 @@ P1を短いスプリントに分けて進める。各スプリントの終わり
 ### 気づいたこと
 
 - テスト用ブラウザでは、日本語のファイル名でダウンロードすると「download」という名前になる。実機のChrome・Safariで確かめる
+
+## デプロイ(Cloudflare Workers)
+
+- 公開先: https://ganesya-music.t4qjpmb66z.workers.dev (試作画面。誰でも開ける状態。Cloudflare Access は E5 で掛ける)
+- `npm run deploy` で ビルド → 画面のファイルを Worker に埋め込む → `wrangler deploy`
+- Cloudflare Pages は Workers に統合されたため、Workers に置いた(設計のAPI・MCPも Workers なので同じ所にまとまる)
+- この開発環境では Workers の静的ファイルのアップロードが通らない(アップロード用の一時的な鍵を中継が上書きするため)ので、画面のファイルを `scripts/embed-assets.mjs` でスクリプトに埋め込んでいる。音源ファイルなど大きなものを配る時は、R2 に置くか、手元のPCから静的ファイルとして配る方式に切り替える
+- Cloudflare の API トークン(Pages/Workers の編集権限)は、この開発環境のネットワーク設定に保存した

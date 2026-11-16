@@ -1,0 +1,9 @@
+// Cloudflare Workers の設定。今は画面を配るだけ(worker/index.js)。保存用API・MCP は E1〜E4 で足す。
+// 画面のファイルは scripts/embed-assets.mjs でスクリプトに埋め込んでいる(この開発環境では静的ファイルのアップロードが通らないため)。
+{
+  "name": "ganesya-music",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "preview_urls": false
+}
