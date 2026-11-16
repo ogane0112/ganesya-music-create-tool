@@ -1,3 +1,5 @@
-// アプリの入口。画面はF系タスクで作る。
+// アプリの入口。今はスプリント2の試作画面を出す。
+import { mountPrototype } from './ui/prototype.js';
+
 const app = document.getElementById('app');
-if (app) app.textContent = 'がねしゃ作曲ツール';
+if (app) mountPrototype(app);
