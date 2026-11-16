@@ -7,6 +7,8 @@
   "compatibility_date": "2026-11-01",
   "workers_dev": true,
   "preview_urls": false,
+  // 楽器の音源の置き場。設計では R2 だが、このアカウントでは R2 が有効でないため KV を使っている
+  "kv_namespaces": [{ "binding": "SOUNDS", "id": "911e817e6c3a4861bd4e90e199f90126" }],
   "d1_databases": [
     { "binding": "DB", "database_name": "ganesya-music", "database_id": "5f35893c-adea-415c-8e2b-2735402e09c3", "migrations_dir": "migrations" }
   ]

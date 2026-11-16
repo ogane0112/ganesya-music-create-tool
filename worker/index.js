@@ -57,7 +57,7 @@ function serveAsset(path) {
 export default {
   /**
    * @param {Request} request
-   * @param {{ DB: any, ACCESS_KEY?: string }} env
+   * @param {{ DB: any, SOUNDS: any, ACCESS_KEY?: string }} env
    */
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -77,6 +77,12 @@ export default {
         return await handleMcp(request, { store: songStore(env.DB, owner) });
       }
       if (url.pathname.startsWith('/.well-known/')) return new Response(null, { status: 404 });
+      if (url.pathname.startsWith('/sounds/')) {
+        // 楽器の音源(FluidR3_GM、MITライセンス)。中身が変わる時は道の版(v1)を変えるので、長く覚えてよい
+        const data = request.method === 'GET' ? await env.SOUNDS.get(url.pathname.slice('/sounds/'.length), 'arrayBuffer') : null;
+        if (!data) return new Response(null, { status: 404 });
+        return new Response(data, { headers: { 'content-type': 'application/octet-stream', 'cache-control': 'public, max-age=31536000, immutable' } });
+      }
       return serveAsset(url.pathname);
     } catch (e) {
       if (e instanceof HttpError) return json(e.error, e.status);

@@ -21,6 +21,7 @@
  * @typedef {object} Instrument
  * @property {import('../../core/types.js').InstrumentId} id
  * @property {(ctx: BaseAudioContext, out: AudioNode) => InstrumentVoice} setup
+ * @property {() => Promise<void>} [load] 音源の読み込みが要る楽器だけ。鳴らす前に呼ぶ(何度呼んでもよい)
  */
 
 /** @param {number} pitch */

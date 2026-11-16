@@ -12,7 +12,10 @@
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run test",
     "deploy": "npm run build && node scripts/embed-assets.mjs && wrangler d1 migrations apply ganesya-music --remote && wrangler deploy",
-    "dev:worker": "node scripts/embed-assets.mjs && wrangler d1 migrations apply ganesya-music --local && wrangler dev --port 8787"
+    "dev:worker": "node scripts/embed-assets.mjs && wrangler d1 migrations apply ganesya-music --local && wrangler dev --port 8787",
+    "sounds:build": "python3 scripts/build-samples.py sounds-build",
+    "sounds:upload": "node scripts/upload-sounds.mjs --remote",
+    "sounds:upload:local": "node scripts/upload-sounds.mjs --local"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

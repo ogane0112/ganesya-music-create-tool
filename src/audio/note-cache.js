@@ -78,6 +78,8 @@ async function renderNote(instrument, sampleRate, pitch, duration, velocity) {
 export async function prepareSong(song, sampleRate, opts = {}) {
   const timeline = buildTimeline(song, { itemIds: opts.itemIds });
   const instrumentOf = new Map(song.tracks.map((t) => [t.id, t.instrument]));
+  // 録音した音源を使う楽器は、先に読み込んでおく(読み込めなければ合成の音で鳴る)
+  await Promise.all([...new Set(instrumentOf.values())].map((id) => getInstrument(id).load?.()));
   /** @type {Map<string, () => Promise<void>>} */
   const jobs = new Map();
   for (const ev of timeline.events) {
