@@ -1,5 +1,5 @@
-// アプリの入口。今はスプリント2の試作画面を出す。
-import { mountPrototype } from './ui/prototype.js';
+// アプリの入口。
+import { mountApp } from './ui/app.js';
 
 const app = document.getElementById('app');
-if (app) mountPrototype(app);
+if (app) mountApp(app);

@@ -22,6 +22,7 @@ const START_DELAY = 0.06;
  * @property {boolean} [preparing] 音を用意している途中
  * @property {number} positionSeconds 再生範囲の頭からの秒
  * @property {string | null} itemId 今鳴っている部品
+ * @property {number} [itemProgress] その部品の中の進み具合(0〜1)
  */
 
 export class Player {
@@ -145,7 +146,8 @@ export class Player {
     pos = Math.max(0, Math.min(pos, loopSeconds));
     const tick = (pos / loopSeconds) * timeline.totalTicks;
     const item = timeline.items.find((i) => tick >= i.startTick && tick < i.endTick);
-    return { playing: true, positionSeconds: pos, itemId: item?.itemId ?? null };
+    const itemProgress = item ? (tick - item.startTick) / (item.endTick - item.startTick) : 0;
+    return { playing: true, positionSeconds: pos, itemId: item?.itemId ?? null, itemProgress };
   }
 
   /** @param {(s: PlayerState) => void} fn */

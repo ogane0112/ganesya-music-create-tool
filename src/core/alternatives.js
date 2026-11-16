@@ -15,10 +15,10 @@ import { fail } from './operations.js';
 
 /** 画面に出す対象の名前 */
 export const ALTERNATIVE_TARGETS = /** @type {{ id: AlternativeTarget, label: string, help: string }[]} */ ([
-  { id: 'melody', label: 'メロディ', help: '歌の節回しだけを変える' },
-  { id: 'chords', label: 'コード進行', help: '曲の雰囲気を決める和音の流れを変える(メロディはそのまま)' },
-  { id: 'accompaniment', label: '伴奏', help: '楽器の弾き方とリズムを変える(メロディと和音の流れはそのまま)' },
-  { id: 'all', label: '全部', help: 'この部品を丸ごと作り直す' },
+  { id: 'melody', label: 'メロディ', help: '歌の節回しだけを変えます' },
+  { id: 'chords', label: '和音の流れ', help: '曲の雰囲気を決める和音の流れ(コード進行)を変えます。メロディはそのまま' },
+  { id: 'accompaniment', label: '伴奏', help: '楽器の弾き方とリズムを変えます。メロディと和音の流れはそのまま' },
+  { id: 'all', label: 'まるごと', help: 'この部品をまるごと作り直します' },
 ]);
 
 /**

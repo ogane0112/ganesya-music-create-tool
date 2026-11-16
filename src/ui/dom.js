@@ -42,3 +42,17 @@ export function replace(el, ...children) {
     el.append(c instanceof Node ? c : String(c));
   }
 }
+
+/**
+ * SVG の要素を作る
+ * @param {string} tag
+ * @param {Record<string, string | number>} [attrs]
+ * @param {...Node} children
+ * @returns {SVGElement}
+ */
+export function svg(tag, attrs, ...children) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs ?? {})) el.setAttribute(k, String(v));
+  el.append(...children);
+  return el;
+}
