@@ -1,13 +1,15 @@
 // Cloudflare Worker の入口。画面のファイル、保存用API(/api)、MCP(/mcp)を配る。
 //
-// いまの本人確認は仮のもの:Worker に設定した合言葉(ACCESS_KEY)を知っている人だけが使える。
-// - 保存用API: Authorization: Bearer <合言葉>
-// - MCP: URL の中に合言葉を入れる(/mcp/<合言葉>)。Claude のコネクタにそのURLを登録する
-// 設計どおりのパスキーのログインと OAuth は E2・E4 で入れ、その時にこの仮の仕組みを外す。
+// 本人確認:
+// - MCP(/mcp)は OAuth。Claude のコネクタに https://…/mcp を登録すると、許可の画面が開く(worker/oauth.js)
+// - 保存用API(/api)と、OAuth の許可画面での本人確認は、いまは仮の合言葉(Worker の秘密の値 ACCESS_KEY)。
+//   パスキーのログイン(E2)ができたら置き換える。
 import { handleApi, json } from './api.js';
 import { HttpError, songStore } from './db.js';
 import { ASSETS } from './generated-assets.js';
 import { handleMcp } from './mcp.js';
+import { handleOAuth, ownerFromBearer, unauthorizedMcp } from './oauth.js';
+import { oauthStore } from './oauth-store.js';
 
 /** いまは持ち主は1人 */
 const OWNER = 'owner';
@@ -65,12 +67,15 @@ export default {
         if (!env.ACCESS_KEY || !(await sameSecret(given, env.ACCESS_KEY))) throw unauthorized();
         return await handleApi(request, url.pathname.slice(5), songStore(env.DB, OWNER));
       }
-      const mcp = /^\/mcp\/([^/]+)\/?$/.exec(url.pathname);
-      if (mcp || url.pathname === '/mcp') {
-        if (!mcp || !env.ACCESS_KEY || !(await sameSecret(decodeURIComponent(mcp[1]), env.ACCESS_KEY))) throw unauthorized();
-        return await handleMcp(request, { store: songStore(env.DB, OWNER) });
+      const oauth = oauthStore(env.DB);
+      const handled = await handleOAuth(request, url, oauth, async (key) => (env.ACCESS_KEY && (await sameSecret(key, env.ACCESS_KEY)) ? OWNER : null));
+      if (handled) return handled;
+      if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) {
+        // URL に合言葉を入れる以前の方式は廃止した。許可証(OAuth)だけを受け付ける
+        const owner = url.pathname === '/mcp' ? await ownerFromBearer(request, oauth) : null;
+        if (!owner) return unauthorizedMcp(url.origin);
+        return await handleMcp(request, { store: songStore(env.DB, owner) });
       }
-      // OAuth はまだない(探しに来た相手に「ない」と答える)
       if (url.pathname.startsWith('/.well-known/')) return new Response(null, { status: 404 });
       return serveAsset(url.pathname);
     } catch (e) {

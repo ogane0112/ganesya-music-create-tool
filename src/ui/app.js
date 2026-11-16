@@ -473,7 +473,7 @@ export function mountApp(root) {
 
   // ---- 曲一覧 ----
   function listView() {
-    const mcpUrl = `${location.origin}/mcp/${encodeURIComponent(getAccessKey())}`;
+    const mcpUrl = `${location.origin}/mcp`;
     return h('main', { class: 'create listview' },
       h('header', { class: 'list-head' },
         h('h1', null, '曲一覧'),
@@ -510,6 +510,7 @@ export function mountApp(root) {
         h('ol', { class: 'steps' },
           h('li', null, 'Claude の設定 →「コネクタ」→「カスタムコネクタを追加」を開く'),
           h('li', null, '下のURLを貼り付けて追加する'),
+          h('li', null, '「接続」を押すと許可の画面が開くので、合言葉を入れて「許可する」を押す'),
           h('li', null, 'チャットで「がねしゃ作曲ツールで、切ない曲を作って」のように頼む。できた曲はこの一覧に出ます'),
         ),
         h('div', { class: 'copy-row' },
@@ -527,7 +528,7 @@ export function mountApp(root) {
             },
           }, 'コピー'),
         ),
-        h('p', { class: 'muted small' }, 'このURLには合言葉が入っています。知っている人は誰でも曲を読み書きできるので、人に見せないでください。'),
+        h('p', { class: 'muted small' }, 'URLだけでは曲は読めません。許可の画面で合言葉を入れた相手だけがつながります。'),
       ),
       h('div', { class: 'list-actions' },
         h('button', { type: 'button', class: 'ghost', onClick: () => { setAccessKey(''); keyError = ''; screen = 'key'; render(); } }, 'この端末の合言葉を忘れる(ログアウト)'),
