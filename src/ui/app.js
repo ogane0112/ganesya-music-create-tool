@@ -8,10 +8,10 @@ import { generateAlternatives, ALTERNATIVE_TARGETS } from '../core/alternatives.
 import { INSTRUMENTS, MOODS, TEMPO_PRESETS } from '../core/catalog.js';
 import { History } from '../core/history.js';
 import {
-  addArrangementItem, addSectionCopy, createDraftSong, moveArrangementItem, removeArrangementItem, replaceSection, setConnectorSettings, setItem,
-  setLyrics, updateSongSettings,
+  addArrangementItem, addSectionCopy, addVocalPart, createDraftSong, moveArrangementItem, removeArrangementItem, removeVocalPart, replaceSection,
+  setConnectorSettings, setItem, setLyrics, updateSongSettings,
 } from '../core/operations.js';
-import { assignLyrics, lyricLines } from '../core/lyrics.js';
+import { assignLyrics, lyricLines, vocalTracks } from '../core/lyrics.js';
 import { listSingers, singerOf, singItem, voicevoxAvailable } from '../connectors/voicevox.js';
 import { hasVocal, setVocal } from '../audio/vocals.js';
 import { roleDefaults } from '../audio/render.js';
@@ -100,6 +100,8 @@ export function mountApp(root) {
   /** @type {Map<string, string>} 書きかけの歌詞(並び順の項目ごと) */
   const lyricDrafts = new Map();
   let lyricsOpen = false;
+  /** @type {string | null} 歌詞を書いている歌のパート(null は主旋律) */
+  let lyricTrack = null;
   let itemOpen = false; // 「この場所だけの設定」を開いているか
   /** @type {Set<string>} 「くわしく」を開いているパート */
   const mixOpen = new Set();
@@ -817,13 +819,48 @@ export function mountApp(root) {
    * @param {string} name
    */
   function lyricsPanel(song, item, name) {
-    const lines = lyricLines(song, item.id);
-    if (lines.length === 0) return null; // メロディのない部品(イントロなど)
-    const saved = lines.map((l) => l.kana).join('\n').replace(/\n+$/, '');
-    const text = lyricDrafts.get(item.id) ?? saved;
-    const check = assignLyrics(song, item.sectionId, text);
-    const counts = lines.map((l) => l.notes).join('・');
+    const vocals = vocalTracks(song);
+    const track = vocals.find((t) => t.id === lyricTrack) ?? vocals[0];
+    if (!track) return null;
+    const tid = track.id;
+    const isMain = track === vocals[0];
+    const draftKey = `${item.id}:${tid}`;
+    const lines = lyricLines(song, item.id, tid);
     const sung = hasVocal(song, item.id);
+    const partTabs = vocals.length > 1 || lines.length > 0 ? h('div', { class: 'chips vocal-parts', role: 'tablist', 'aria-label': '歌のパート' },
+      vocals.map((t) => h('button', {
+        type: 'button', role: 'tab', class: `chip${t.id === tid ? ' on' : ''}`, 'aria-selected': String(t.id === tid),
+        onClick: () => { lyricTrack = t.id; lyricsOpen = true; render(); },
+      }, `🎤 ${t.name ?? t.id}`)),
+      vocals.length < 4 && h('button', {
+        type: 'button', class: 'chip', title: '主旋律の3度上で同じ歌詞を歌うパートを足します',
+        onClick: () => {
+          const r = addVocalPart(song, { harmony: 'third-above', name: 'ハモリ' });
+          lyricsOpen = true;
+          if (r.ok) lyricTrack = r.value.tracks[r.value.tracks.length - 1].id;
+          apply(r, { label: 'ハモリを足す', message: 'ハモリ(3度上)を足しました。🎤 歌わせると2人で歌います' });
+        },
+      }, '＋ ハモリ(上)'),
+      vocals.length < 4 && h('button', {
+        type: 'button', class: 'chip', title: '主旋律の3度下で同じ歌詞を歌うパートを足します',
+        onClick: () => {
+          const r = addVocalPart(song, { harmony: 'third-below', name: 'ハモリ(下)' });
+          lyricsOpen = true;
+          if (r.ok) lyricTrack = r.value.tracks[r.value.tracks.length - 1].id;
+          apply(r, { label: 'ハモリを足す', message: 'ハモリ(3度下)を足しました' });
+        },
+      }, '＋ ハモリ(下)'),
+    ) : null;
+    if (lines.length === 0) {
+      if (isMain) return null; // メロディのない部品(イントロなど)
+      return h('details', { class: 'lyrics', open: lyricsOpen, onToggle: (/** @type {Event} */ e) => { lyricsOpen = /** @type {HTMLDetailsElement} */ (e.target).open; } },
+        h('summary', null, '🎤 歌詞と歌声'), partTabs,
+        h('p', { class: 'muted small' }, `「${track.name ?? tid}」は、この部品では歌いません。`));
+    }
+    const saved = lines.map((l) => l.kana).join('\n').replace(/\n+$/, '');
+    const text = lyricDrafts.get(draftKey) ?? saved;
+    const check = assignLyrics(song, item.sectionId, text, tid);
+    const counts = lines.map((l) => l.notes).join('・');
     /** 行ごとの合い具合(入力のたびに書き換える) */
     const status = h('ul', { class: 'lyric-status', 'aria-live': 'polite' });
     /** @param {ReturnType<typeof assignLyrics>} c */
@@ -836,15 +873,17 @@ export function mountApp(root) {
       }),
     );
     fillStatus(check);
+    const voicevoxExt = /** @type {any} */ (song.extensions.voicevox ?? {});
     return h('details', { class: 'lyrics', open: lyricsOpen, onToggle: (/** @type {Event} */ e) => { lyricsOpen = /** @type {HTMLDetailsElement} */ (e.target).open; } },
-      h('summary', null, '🎤 歌詞と歌声', sung ? h('span', { class: 'tag' }, '歌声あり') : null),
-      h('p', { class: 'muted small' }, `かな(ひらがな)で、息継ぎごとに改行して書きます。この部品は ${lines.length}行で、音の数は ${counts} です。`),
+      h('summary', null, '🎤 歌詞と歌声', vocals.length > 1 ? h('span', { class: 'tag' }, `${vocals.length}人`) : null, sung ? h('span', { class: 'tag' }, '歌声あり') : null),
+      partTabs,
+      h('p', { class: 'muted small' }, `かな(ひらがな)で、息継ぎごとに改行して書きます。「${track.name ?? tid}」のこの部品は ${lines.length}行で、音の数は ${counts} です。`),
       h('textarea', {
-        class: 'lyric-input', rows: Math.max(2, lines.length), 'aria-label': `${name}の歌詞`, placeholder: lines.map((l) => 'ら'.repeat(l.notes)).join('\n'),
+        class: 'lyric-input', rows: Math.max(2, lines.length), 'aria-label': `${name}の${track.name ?? ''}の歌詞`, placeholder: lines.map((l) => 'ら'.repeat(l.notes)).join('\n'),
         onInput: (/** @type {Event} */ e) => {
           const value = /** @type {HTMLTextAreaElement} */ (e.target).value;
-          lyricDrafts.set(item.id, value);
-          fillStatus(assignLyrics(song, item.sectionId, value));
+          lyricDrafts.set(draftKey, value);
+          fillStatus(assignLyrics(song, item.sectionId, value, tid));
         },
       }, text),
       status,
@@ -852,23 +891,31 @@ export function mountApp(root) {
         h('button', {
           type: 'button', class: 'secondary',
           onClick: () => {
-            const value = lyricDrafts.get(item.id) ?? saved;
-            const r = setLyrics(song, item.id, value);
+            const value = lyricDrafts.get(draftKey) ?? saved;
+            const r = setLyrics(song, item.id, value, { trackId: tid });
             lyricsOpen = true;
             if (apply(r, { label: `${name}の歌詞`, keepPlaying: true })) {
-              lyricDrafts.delete(item.id);
+              lyricDrafts.delete(draftKey);
               showToast(r.ok && r.warnings.length ? `歌詞を入れました(${r.warnings.length}行、音数が合っていません)` : '歌詞を入れました');
               render();
             }
           },
         }, '歌詞を入れる'),
-        h('button', { type: 'button', class: 'primary', disabled: singing !== null, onClick: () => sing(item.id, name) }, singing === item.id ? '歌わせています…' : '🎤 歌わせる'),
+        h('button', { type: 'button', class: 'primary', disabled: singing !== null, onClick: () => sing(item.id, name) }, singing === item.id ? '歌わせています…' : vocals.length > 1 ? `🎤 ${vocals.length}人で歌わせる` : '🎤 歌わせる'),
+        !isMain && h('button', {
+          type: 'button', class: 'ghost danger',
+          onClick: () => { if (apply(removeVocalPart(song, tid), { label: `${track.name ?? tid}を外す`, message: `${track.name ?? tid}を外しました` })) lyricTrack = null; },
+        }, 'このパートを外す'),
       ),
       singers && h('label', { class: 'field singer' },
-        h('span', { class: 'field-label' }, '歌い手'),
+        h('span', { class: 'field-label' }, `${track.name ?? tid}の歌い手`),
         h('select', {
-          onChange: (/** @type {Event} */ e) => apply(setConnectorSettings(song, 'voicevox', { singer: Number(/** @type {HTMLSelectElement} */ (e.target).value) }), { label: '歌い手を変える', keepPlaying: true }),
-        }, singers.map((sg) => h('option', { value: sg.id, selected: sg.id === singerOf(song) }, sg.label))),
+          onChange: (/** @type {Event} */ e) => {
+            const id = Number(/** @type {HTMLSelectElement} */ (e.target).value);
+            const settings = isMain ? { singer: id, singers: { ...(voicevoxExt.singers ?? {}), [tid]: id } } : { singers: { ...(voicevoxExt.singers ?? {}), [tid]: id } };
+            apply(setConnectorSettings(song, 'voicevox', settings), { label: '歌い手を変える', keepPlaying: true });
+          },
+        }, singers.map((sg) => h('option', { value: sg.id, selected: sg.id === singerOf(song, tid) }, sg.label))),
       ),
       h('p', { class: 'muted small' }, '歌声は、このPCで動かしている VOICEVOX が作ります(iPad・スマホでは作れません)。歌詞がない音は「ら」で歌います。作った歌声はページを閉じると消えるので、その時はもう一度歌わせてください。'),
     );
@@ -892,13 +939,18 @@ export function mountApp(root) {
         return;
       }
       if (!singers) singers = await listSingers().catch(() => null);
-      const vocal = await singItem(song, itemId);
-      if (!vocal) {
+      let made = 0;
+      for (const t of vocalTracks(song)) {
+        const vocal = await singItem(song, itemId, { trackId: t.id });
+        if (!vocal) continue;
+        setVocal(song, itemId, vocal, t.id);
+        made++;
+      }
+      if (!made) {
         showToast('この部品には歌うメロディがありません', undefined, true);
         return;
       }
-      setVocal(song, itemId, vocal);
-      showToast(`${name}の歌声ができました`);
+      showToast(made > 1 ? `${name}の歌声ができました(${made}人)` : `${name}の歌声ができました`);
       singing = null;
       render();
       playSection(itemId);

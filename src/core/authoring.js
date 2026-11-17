@@ -30,7 +30,7 @@ export { STYLE_NAMES };
 /** @param {string | Chord[] | undefined} x */
 export const resolveChords = (x) => (typeof x === 'string' ? parseChords(x) : x);
 /** @param {string | NoteData[] | undefined} x */
-export const resolveNotes = (x) => (typeof x === 'string' ? parseMelody(x) : x?.map(({ start, length, pitch, velocity }) => ({ start, length, pitch, velocity: velocity ?? 94 })));
+export const resolveNotes = (x) => (typeof x === 'string' ? parseMelody(x) : x?.map(({ start, length, pitch, velocity, free, phrase }) => ({ start, length, pitch, velocity: velocity ?? 94, ...(free ? { free: true } : {}), ...(phrase ? { phrase: true } : {}) })));
 
 /**
  * 部品1つ分の中身を作る(書かれたコード進行・メロディを使い、残りはルールで作る)

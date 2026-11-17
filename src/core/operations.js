@@ -5,7 +5,8 @@ import { collectIds, createIdFactory } from './ids.js';
 import { isValidTonic, keyPrefersFlat, mod12, pcName, pitchClassOf, ticksPerBar, transposeChord } from './theory.js';
 import { STYLE_NAMES } from './style-names.js';
 import { validateSong } from './validate.js';
-import { assignLyrics } from './lyrics.js';
+import { assignLyrics, melodyNotes, vocalTracks } from './lyrics.js';
+import { chordPitchClasses, scalePitchesInRange } from './theory.js';
 import { createEmptySong } from './song.js';
 import { generateDraft } from './composer/index.js';
 
@@ -330,14 +331,17 @@ function cut(items, from, to) {
  * @param {Song} song
  * @param {string} itemId
  * @param {string} text 空なら歌詞を消す
- * @param {{ strict?: boolean }} [opts]
+ * @param {{ strict?: boolean, trackId?: string }} [opts] trackId:どの歌のパートか(省略で主旋律)
  * @returns {SongResult}
  */
 export function setLyrics(song, itemId, text, opts = {}) {
   const next = clone(song);
   const item = next.arrangement.find((a) => a.id === itemId);
   if (!item) return fail(`並び順の項目が見つかりません: ${itemId}`, '曲を読み込み直してください', 'not_found');
-  const r = assignLyrics(next, item.sectionId, text);
+  if (opts.trackId && !next.tracks.some((t) => t.id === opts.trackId && t.role === 'vocal')) {
+    return fail(`歌のパートではありません: ${opts.trackId}`, '役割が「歌メロ」(vocal)のパートを指定してください', 'invalid_song');
+  }
+  const r = assignLyrics(next, item.sectionId, text, opts.trackId);
   /** @type {string[]} */
   const warnings = [];
   if (r.invalid.length) warnings.push(`かなで書いてください(読めない字: ${r.invalid.slice(0, 8).join(' ')})`);
@@ -348,7 +352,9 @@ export function setLyrics(song, itemId, text, opts = {}) {
   if (opts.strict && warnings.length && text.trim()) {
     return fail(`歌詞の音数がメロディと合いません\n${warnings.join('\n')}`, `行ごとの音数を ${r.lines.map((l) => l.notes).join('・')} に合わせてください(小さい「ゃゅょ」は前の字と合わせて1音、「ん」「っ」は1音)`, 'lyrics_mismatch', { lines: r.lines });
   }
-  item.lyrics = r.lyrics;
+  // ほかの歌のパートの歌詞は残し、このパートの分だけ入れ替える
+  const mine = new Set(melodyNotes(next, item.sectionId, opts.trackId).map((n) => n.id));
+  item.lyrics = [...item.lyrics.filter((l) => !mine.has(l.noteId)), ...r.lyrics];
   const done = finish(next);
   return done.ok ? { ...done, warnings } : done;
 }
@@ -520,6 +526,101 @@ export function addSectionCopy(song, sectionId, opts) {
   const at = clampIndex(opts.index ?? next.arrangement.length, next.arrangement.length);
   next.arrangement.splice(at, 0, { id: nextId('a'), sectionId: copy.id, lyrics: [] });
   return finish(next, { strictSectionIds: [copy.id] });
+}
+
+// ---- 歌のパートを足す(デュエット・ハモリ・コーラス) ----
+
+/** ハモリの作り方 → 主旋律からキーの中で何段ずらすか(段 = キーの音の並びの1つ分。2段で3度) */
+const HARMONY_STEPS = /** @type {const} */ ({ 'third-above': 2, 'third-below': -2, 'sixth-below': -5, 'octave-above': 7, 'octave-below': -7, unison: 0 });
+
+/**
+ * 歌のパートを1本足す。harmony を指定すると、主旋律からハモリの音符を作り、歌詞も写す(すぐ歌わせられる)
+ * 指定しなければ空のパートを作る(あとで replace_section の parts で音符を書く:デュエットの掛け合いなど)
+ * @param {Song} song
+ * @param {{ name?: string, instrument?: import('./types.js').InstrumentId, harmony?: keyof typeof HARMONY_STEPS, copyLyrics?: boolean }} [opts]
+ * @returns {SongResult}
+ */
+export function addVocalPart(song, opts = {}) {
+  const main = vocalTracks(song)[0];
+  if (!main) return fail('主旋律(歌メロ)のパートがありません', '先に歌メロのある曲を作ってください', 'invalid_song');
+  if (vocalTracks(song).length >= 4) return fail('歌のパートは4本までです', '使っていない歌のパートを外してください');
+  if (opts.harmony !== undefined && !(opts.harmony in HARMONY_STEPS)) {
+    return fail(`知らないハモリの作り方です: ${String(opts.harmony)}`, `${Object.keys(HARMONY_STEPS).join(' / ')} から選んでください`, 'invalid_song');
+  }
+  if (opts.instrument !== undefined && !isInstrument(opts.instrument)) return fail(`知らない楽器です: ${opts.instrument}`, '楽器の一覧から選んでください');
+  const next = clone(song);
+  const nextId = createIdFactory(collectIds(next));
+  const id = nextId('t');
+  const n = vocalTracks(next).length + 1;
+  next.tracks.push({
+    id, role: 'vocal', instrument: opts.instrument ?? main.instrument, volume: 0.7,
+    name: (opts.name ?? (opts.harmony ? 'ハモリ' : `歌メロ${n}`)).trim() || `歌メロ${n}`,
+    pan: n % 2 === 0 ? 0.25 : -0.25,
+  });
+  /** @type {Map<string, string>} 主旋律の音符ID → ハモリの音符ID */
+  const pair = new Map();
+  for (const section of next.sections) {
+    const mainNotes = section.parts[main.id] ?? [];
+    if (opts.harmony === undefined) {
+      section.parts[id] = [];
+      continue;
+    }
+    const step = HARMONY_STEPS[opts.harmony];
+    const key = section.key ?? next.key;
+    const scale = scalePitchesInRange(key, 24, 108);
+    section.parts[id] = mainNotes.map((m) => {
+      // キーの音の並びで何番目か(キーの外の音なら、一番近いキーの音から数える)
+      let idx = scale.findIndex((p) => p >= m.pitch);
+      if (idx < 0) idx = scale.length - 1;
+      if (scale[idx] !== m.pitch && idx > 0 && m.pitch - scale[idx - 1] < scale[idx] - m.pitch) idx--;
+      let pitch = scale[Math.max(0, Math.min(scale.length - 1, idx + step))];
+      // 3度でコードに合わない時は、隣のコードの音に寄せる(ぶつかりを減らす)
+      const chord = section.chords.find((c) => m.start >= c.start && m.start < c.start + c.length);
+      if (chord && Math.abs(step) === 2) {
+        const pcs = chordPitchClasses(chord.symbol);
+        if (!pcs.includes(mod12(pitch))) {
+          const alt = [scale[idx + step + Math.sign(step)], scale[idx + step - Math.sign(step)]].find((p) => p !== undefined && pcs.includes(mod12(p)) && p !== m.pitch);
+          if (alt !== undefined) pitch = alt;
+        }
+      }
+      const hid = nextId('n');
+      pair.set(m.id, hid);
+      return { id: hid, start: m.start, length: m.length, pitch, velocity: Math.round(m.velocity * 0.9), ...(m.phrase ? { phrase: true } : {}) };
+    });
+  }
+  // 歌詞を写す(主旋律と同じ言葉で歌う)
+  if (opts.harmony !== undefined && opts.copyLyrics !== false) {
+    for (const item of next.arrangement) {
+      const copied = item.lyrics.flatMap((l) => (pair.has(l.noteId) ? [{ noteId: /** @type {string} */ (pair.get(l.noteId)), kana: l.kana }] : []));
+      item.lyrics = [...item.lyrics, ...copied];
+    }
+  }
+  return finish(next);
+}
+
+/**
+ * 足した歌のパートを外す(主旋律は外せない)
+ * @param {Song} song
+ * @param {string} trackId
+ * @returns {SongResult}
+ */
+export function removeVocalPart(song, trackId) {
+  const vocals = vocalTracks(song);
+  const i = vocals.findIndex((t) => t.id === trackId);
+  if (i < 0) return fail('その歌のパートは見つかりません', '曲を読み込み直してください');
+  if (i === 0) return fail('主旋律は外せません', '外せるのは、あとから足した歌のパートです');
+  const next = clone(song);
+  const noteIds = new Set(next.sections.flatMap((s) => (s.parts[trackId] ?? []).map((n) => n.id)));
+  next.tracks = next.tracks.filter((t) => t.id !== trackId);
+  for (const s of next.sections) delete s.parts[trackId];
+  for (const item of next.arrangement) {
+    item.lyrics = item.lyrics.filter((l) => !noteIds.has(l.noteId));
+    if (item.mix) delete item.mix[trackId];
+    if (item.instruments) delete item.instruments[trackId];
+  }
+  const ext = /** @type {any} */ (next.extensions.voicevox);
+  if (ext?.singers) delete ext.singers[trackId];
+  return finish(next);
 }
 
 // ---- 接続口の設定 ----

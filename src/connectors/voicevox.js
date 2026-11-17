@@ -4,7 +4,7 @@
 //   - 楽譜は { notes: [{ key, frame_length, lyric }] }。先頭は休み(key: null)。1秒 = 93.75 フレーム
 //   - lyric は かな1音。「ー」は受け付けないので、前の音の母音にして送る(core/lyrics.js の sungNotes)
 //   - 返る音声は 24000Hz・モノラルの WAV
-import { sungNotes } from '../core/lyrics.js';
+import { sungNotes, vocalTracks } from '../core/lyrics.js';
 import { ticksPerBar, ticksToSeconds } from '../core/theory.js';
 
 /** @typedef {import('../core/types.js').Song} Song */
@@ -12,8 +12,10 @@ import { ticksPerBar, ticksToSeconds } from '../core/theory.js';
 export const VOICEVOX_DEFAULT_URL = 'http://localhost:50021';
 /** 楽譜から歌い方(音の高さの揺れ・長さ)を作る役。VOICEVOX が決めている番号 */
 const SING_TEACHER = 6000;
-/** 初期の歌い手(ずんだもん・あまあま)。曲の extensions.voicevox.singer で変えられる */
+/** 初期の歌い手(ずんだもん・あまあま)。曲の extensions.voicevox.singer(主旋律)・singers(パートごと)で変えられる */
 export const DEFAULT_SINGER = 3001;
+/** 2本目以降の歌のパートの初期の歌い手(四国めたん・ノーマル)。主旋律と声を分ける */
+export const DEFAULT_SECOND_SINGER = 3002;
 const FPS = 93.75;
 const LEAD_SECONDS = 0.5; // 最初の子音が切れないよう、頭に置く休み
 
@@ -28,13 +30,14 @@ const LEAD_SECONDS = 0.5; // 最初の子音が切れないよう、頭に置く
  * 並び順の1か所を、VOICEVOX の楽譜にする。頭に LEAD_SECONDS の休みが付く
  * @param {Song} song
  * @param {string} itemId
+ * @param {string} [trackId] 歌のパート(省略で主旋律)
  * @returns {{ notes: ScoreNote[], leadSeconds: number, seconds: number } | null} 歌う音符がなければ null
  */
-export function buildScore(song, itemId) {
+export function buildScore(song, itemId, trackId) {
   const item = song.arrangement.find((a) => a.id === itemId);
   const section = item && song.sections.find((s) => s.id === item.sectionId);
   if (!item || !section) return null;
-  const sung = sungNotes(song, itemId);
+  const sung = sungNotes(song, itemId, trackId);
   if (!sung.length) return null;
   const total = section.bars * ticksPerBar(song.timeSignature);
   // 位置をフレームに直す。1音ずつ丸めると少しずつずれるので、頭からの位置で丸める
@@ -70,10 +73,18 @@ export function buildScore(song, itemId) {
   return { notes, leadSeconds: LEAD_SECONDS, seconds: cursor / FPS };
 }
 
-/** @param {Song} song */
-export function singerOf(song) {
+/**
+ * その歌のパートの歌い手
+ * @param {Song} song
+ * @param {string} [trackId] 省略で主旋律
+ */
+export function singerOf(song, trackId) {
   const ext = /** @type {any} */ (song.extensions?.voicevox);
-  return Number.isInteger(ext?.singer) ? ext.singer : DEFAULT_SINGER;
+  const main = vocalTracks(song)[0]?.id;
+  const isMain = !trackId || trackId === main;
+  const id = trackId ?? main;
+  const pick = (/** @type {unknown} */ v) => (Number.isInteger(v) ? /** @type {number} */ (v) : undefined);
+  return pick(id ? ext?.singers?.[id] : undefined) ?? (isMain ? pick(ext?.singer) : undefined) ?? (isMain ? DEFAULT_SINGER : DEFAULT_SECOND_SINGER);
 }
 
 /**
@@ -113,12 +124,12 @@ export async function listSingers(baseUrl = VOICEVOX_DEFAULT_URL) {
  * 並び順の1か所を歌わせて、WAV を受け取る
  * @param {Song} song
  * @param {string} itemId
- * @param {{ baseUrl?: string, singer?: number }} [opts]
+ * @param {{ baseUrl?: string, singer?: number, trackId?: string }} [opts] trackId:歌のパート(省略で主旋律)
  * @returns {Promise<{ wav: ArrayBuffer, leadSeconds: number } | null>} 歌う音符がなければ null
  */
 export async function singItem(song, itemId, opts = {}) {
   const baseUrl = opts.baseUrl ?? VOICEVOX_DEFAULT_URL;
-  const score = buildScore(song, itemId);
+  const score = buildScore(song, itemId, opts.trackId);
   if (!score) return null;
   /** @param {string} path @param {unknown} body */
   const post = async (path, body) => {
@@ -135,7 +146,7 @@ export async function singItem(song, itemId, opts = {}) {
     return res;
   };
   const query = await (await post(`/sing_frame_audio_query?speaker=${SING_TEACHER}`, { notes: score.notes })).json();
-  const wav = await (await post(`/frame_synthesis?speaker=${opts.singer ?? singerOf(song)}`, query)).arrayBuffer();
+  const wav = await (await post(`/frame_synthesis?speaker=${opts.singer ?? singerOf(song, opts.trackId)}`, query)).arrayBuffer();
   return { wav, leadSeconds: score.leadSeconds };
 }
 
@@ -150,8 +161,10 @@ export const voicevoxEngine = {
       /** @type {Record<string, { wav: ArrayBuffer, leadSeconds: number }>} */
       const out = {};
       for (const itemId of range.arrangementItemIds) {
-        const r = await singItem(song, itemId);
-        if (r) out[itemId] = r;
+        for (const t of vocalTracks(song)) {
+          const r = await singItem(song, itemId, { trackId: t.id });
+          if (r) out[`${itemId}:${t.id}`] = r;
+        }
       }
       return { ok: true, value: out, warnings: [] };
     } catch (e) {

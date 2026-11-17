@@ -143,6 +143,7 @@ export function checkShape(song) {
             checkSpan(n, np, length, bad);
             if (!isInt(n.pitch) || n.pitch < 0 || n.pitch > 127) bad(`${np}.pitch`, '音の高さは0〜127の整数である必要があります');
             if (!isInt(n.velocity) || n.velocity < 1 || n.velocity > 127) bad(`${np}.velocity`, '音の強さは1〜127の整数である必要があります');
+            for (const k of ['free', 'phrase']) if (n[k] !== undefined && typeof n[k] !== 'boolean') bad(`${np}.${k}`, `${k} は true か false である必要があります`);
           });
         }
       }
@@ -272,7 +273,7 @@ export function findOutOfKeyNotes(song, opts = {}) {
     for (const [trackId, notes] of Object.entries(s.parts)) {
       if (drumTracks.has(trackId)) continue;
       for (const n of notes) {
-        if (isInKey(n.pitch, key)) continue;
+        if (n.free || isInKey(n.pitch, key)) continue; // 印(~)の付いた音は、意図した音として通す
         // キーの外でも、その時鳴っているコードの音なら合っている(借りてきたコードなど)
         const chord = s.chords.find((c) => n.start >= c.start && n.start < c.start + c.length);
         const parsed = chord ? parseChord(chord.symbol) : null;

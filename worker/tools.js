@@ -1,12 +1,12 @@
-// MCP の道具(9個)。画面と同じ「操作」を呼び、同じ検査を通す。曲の削除は出さない。
+// MCP の道具(13個)。画面と同じ「操作」を呼び、同じ検査を通す。曲の削除は出さない。
 import { generateAlternatives } from '../src/core/alternatives.js';
 import { authorSection, createAuthoredSong, resolveNotes } from '../src/core/authoring.js';
 import { formatChords, formatMelody, NotationError } from '../src/core/notation.js';
 import {
   addArrangementItem, addSection, createDraftSong, moveArrangementItem, registerSong, removeArrangementItem, renameSection,
-  replaceSection, setItem, setLyrics, setSectionKey, addSectionCopy, updateSongSettings,
+  replaceSection, setItem, setLyrics, setSectionKey, addSectionCopy, updateSongSettings, addVocalPart, removeVocalPart, setConnectorSettings,
 } from '../src/core/operations.js';
-import { lyricLines } from '../src/core/lyrics.js';
+import { lyricLines, vocalTracks } from '../src/core/lyrics.js';
 import { keyPrefersFlat, pitchName, ticksPerBar } from '../src/core/theory.js';
 import { buildTimeline } from '../src/core/timeline.js';
 import { ticksToSeconds } from '../src/core/theory.js';
@@ -83,7 +83,9 @@ export function summarize(id, song, opts = {}) {
   const flat = keyPrefersFlat(song.key);
   const barTicks = ticksPerBar(song.timeSignature);
   const melodyTrack = song.tracks.find((t) => t.role === 'vocal')?.id;
+  const others = vocalTracks(song).slice(1);
   const tl = buildTimeline(song);
+  const singers = /** @type {any} */ (song.extensions.voicevox)?.singers;
   return {
     songId: id,
     revision: song.revision,
@@ -98,6 +100,7 @@ export function summarize(id, song, opts = {}) {
     arrangement: song.arrangement.map((a, index) => ({
       index, itemId: a.id, sectionId: a.sectionId, name: song.sections.find((s) => s.id === a.sectionId)?.name,
       lyrics: lyricLines(song, a.id).map((l) => ({ notes: l.notes, kana: l.kana })),
+      ...(others.length ? { otherVocals: Object.fromEntries(others.map((t) => [t.id, lyricLines(song, a.id, t.id).map((l) => ({ notes: l.notes, kana: l.kana }))])) } : {}),
       ...(a.mix ? { mix: a.mix } : {}), ...(a.styles ? { styles: a.styles } : {}), ...(a.instruments ? { instruments: a.instruments } : {}), ...(a.fx ? { fx: a.fx } : {}),
     })),
     sections: song.sections.map((s) => ({
@@ -108,7 +111,9 @@ export function summarize(id, song, opts = {}) {
       ...(s.key ? { key: s.key } : {}),
       chords: formatChords(s.chords),
       melody: melodyTrack ? formatMelody(s.parts[melodyTrack] ?? [], { flat, barTicks, totalTicks: s.bars * barTicks, velocities: opts.velocities }) : '',
+      ...(others.length ? { otherVocals: Object.fromEntries(others.map((t) => [t.id, formatMelody(s.parts[t.id] ?? [], { flat, barTicks, totalTicks: s.bars * barTicks, velocities: opts.velocities })])) } : {}),
     })),
+    ...(singers ? { singers } : {}),
   };
 }
 
@@ -372,17 +377,20 @@ export const TOOLS = [
         ...WRITE_PROPS,
         itemId: { type: 'string', description: 'get_song の arrangement の itemId' },
         lines: { type: 'array', items: { type: 'string' }, description: 'フレーズごとの歌詞(かな)。行数はフレーズの数と同じにする。空の配列で歌詞を消す' },
+        trackId: { type: 'string', description: '2本目以降の歌のパート(ハモリ・デュエット)に入れる時だけ。省略で主旋律。行と音数は get_song の arrangement[].otherVocals[trackId] を見る' },
       },
       required: ['songId', 'revision', 'itemId', 'lines'],
     },
     run: async (args, ctx) => {
       const song = await loadForWrite(ctx, args);
       const lines = Array.isArray(args.lines) ? args.lines.map(String) : [];
-      const expected = lyricLines(song, args.itemId).length;
+      const trackId = args.trackId ? String(args.trackId) : undefined;
+      if (trackId && !vocalTracks(song).some((t) => t.id === trackId)) throw new ToolError({ code: 'not_found', message: `歌のパートが見つかりません: ${trackId}`, hint: 'get_song の tracks で role が vocal のパートを使ってください' });
+      const expected = lyricLines(song, args.itemId, trackId).length;
       if (lines.length && lines.length !== expected) {
         throw new ToolError({ code: 'lyrics_mismatch', message: `行数が合いません(渡された行: ${lines.length}、フレーズ: ${expected})`, hint: `get_song の arrangement[].lyrics を見て、${expected}行にしてください` });
       }
-      return save(ctx, args.songId, unwrap(setLyrics(song, args.itemId, lines.join('\n'), { strict: true }), song), args.revision);
+      return save(ctx, args.songId, unwrap(setLyrics(song, args.itemId, lines.join('\n'), { strict: true, trackId }), song), args.revision);
     },
   },
   {
@@ -397,6 +405,7 @@ export const TOOLS = [
         tempo: { type: 'number' },
         key: KEY_SCHEMA,
         humanize: { type: 'number', description: '演奏の揺らぎ(タイミング・強弱)の強さ。0 で楽譜どおり、1 が標準' },
+        singers: { type: 'object', description: '歌のパートID → VOICEVOX の歌い手の番号(例: 3001=ずんだもん、3002=四国めたん。利用者のVOICEVOXの /singers にある frame_decode の番号)。省略したパートは主旋律がずんだもん、ほかは四国めたん', additionalProperties: { type: 'integer' } },
         tracks: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, instrument: { type: 'string' }, volume: { type: 'number', description: '0〜1' }, muted: { type: 'boolean' }, pan: { type: 'number', description: '左右の位置。-1(左)〜1(右)' }, reverb: { type: 'number', description: '残響の量。0〜1' } }, required: ['id'] } },
       },
       required: ['songId', 'revision'],
@@ -404,7 +413,41 @@ export const TOOLS = [
     run: async (args, ctx) => {
       const song = await loadForWrite(ctx, args);
       const { title, artist, tempo, key, tracks, humanize } = args;
-      return save(ctx, args.songId, unwrap(updateSongSettings(song, { title, artist, tempo, key, tracks, humanize }), song), args.revision);
+      let next = unwrap(updateSongSettings(song, { title, artist, tempo, key, tracks, humanize }), song);
+      if (args.singers && typeof args.singers === 'object') {
+        const ids = new Set(vocalTracks(next).map((t) => t.id));
+        /** @type {Record<string, number>} */
+        const singers = { ...(/** @type {any} */ (next.extensions.voicevox)?.singers ?? {}) };
+        for (const [tid, v] of Object.entries(args.singers)) {
+          if (!ids.has(tid)) throw new ToolError({ code: 'not_found', message: `歌のパートが見つかりません: ${tid}`, hint: 'tracks で role が vocal のパートIDを使ってください' });
+          if (!Number.isInteger(v)) throw new ToolError({ code: 'invalid_arguments', message: `歌い手の番号は整数にします: ${tid}`, hint: '例: 3001' });
+          singers[tid] = /** @type {number} */ (v);
+        }
+        next = unwrap(setConnectorSettings(next, 'voicevox', { singers }), next);
+      }
+      return save(ctx, args.songId, next, args.revision);
+    },
+  },
+  {
+    name: 'add_vocal_part',
+    description: '歌のパートを1本足して保存する(4本まで)。harmony を渡すと、主旋律から自動でハモリを作り、歌詞も写す(すぐ2人で歌える)。third-above=3度上(定番。サビで厚みを出す)、third-below=3度下、sixth-below=6度下、octave-above/octave-below=オクターブ、unison=同じ高さ(声を重ねる)。harmony を省くと空のパートになるので、replace_section の parts でそのパートIDに音符を書き(デュエットの掛け合い、合いの手、コーラス)、set_lyrics の trackId で歌詞を入れる。ハモリを一部の部品だけにしたい時は、update_arrangement の set_item でほかの場所を mix の muted にする。remove に trackId を渡すと、足したパートを外す(主旋律は外せない)。主旋律を書き換えても、ハモリは自動では追従しない(作り直す時は外してから足し直す)。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...WRITE_PROPS,
+        harmony: { type: 'string', enum: ['third-above', 'third-below', 'sixth-below', 'octave-above', 'octave-below', 'unison'] },
+        name: { type: 'string', description: 'パートの名前(例: ハモリ、男声、コーラス)' },
+        instrument: { type: 'string', description: '歌声を作っていない時に鳴る楽器。省略で主旋律と同じ' },
+        copyLyrics: { type: 'boolean', description: 'ハモリに主旋律の歌詞を写すか(省略で写す)' },
+        remove: { type: 'string', description: '外す歌のパートID(これを渡すと足さずに外す)' },
+      },
+      required: ['songId', 'revision'],
+    },
+    run: async (args, ctx) => {
+      const song = await loadForWrite(ctx, args);
+      if (args.remove) return save(ctx, args.songId, unwrap(removeVocalPart(song, String(args.remove)), song), args.revision);
+      const r = unwrap(addVocalPart(song, { harmony: args.harmony, name: args.name, instrument: args.instrument, copyLyrics: args.copyLyrics }), song);
+      return save(ctx, args.songId, r, args.revision);
     },
   },
   {

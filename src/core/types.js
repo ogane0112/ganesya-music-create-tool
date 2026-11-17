@@ -52,6 +52,8 @@ export const FORMAT_VERSION = 1;
  * @property {number} length
  * @property {number} pitch MIDIの音番号(0〜127)。ドラムでは打楽器の種類
  * @property {number} velocity 強さ(1〜127)
+ * @property {boolean} [free] キーの外でも、意図した音(経過音・半音の近づき)として破綻チェックを通す。記法は末尾の ~
+ * @property {boolean} [phrase] ここから新しいフレーズ(息継ぎのあと)。歌詞の行の区切りになる。記法は空白で囲んだ /
  */
 
 /**

@@ -38,39 +38,68 @@ export function splitMorae(text) {
 }
 
 /**
- * 部品のメロディの音符(歌う順)
+ * 歌のパート(役割が vocal のパート)。先頭が主旋律
+ * @param {Song} song
+ */
+export function vocalTracks(song) {
+  return song.tracks.filter((t) => t.role === 'vocal');
+}
+
+/**
+ * 部品の歌のパートの音符(歌う順)。trackId を省くと主旋律(最初の歌のパート)
  * @param {Song} song
  * @param {string} sectionId
+ * @param {string} [trackId]
  * @returns {Note[]}
  */
-export function melodyNotes(song, sectionId) {
-  const track = song.tracks.find((t) => t.role === 'vocal');
+export function melodyNotes(song, sectionId, trackId) {
+  const track = trackId ? song.tracks.find((t) => t.id === trackId) : vocalTracks(song)[0];
   const section = song.sections.find((s) => s.id === sectionId);
   if (!track || !section) return [];
   return [...(section.parts[track.id] ?? [])].sort((a, b) => a.start - b.start);
 }
 
+/** フレーズの区切りの規則(手引きにも書く) */
+export const PHRASE_RULES = {
+  /** これ以上の休み(ティック)があれば区切る。200 = 半拍(240)より少し短い */
+  restTicks: 200,
+  /** 1つのフレーズの長さの上限(小節) */
+  maxBars: 2,
+  /** これ以下の音数のまとまりは、近いフレーズにつなげる */
+  mergeNotes: 2,
+};
+
 /**
- * メロディをフレーズ(息継ぎまでのまとまり)に分ける。半拍以上の休みか、小節2つ分の長さで区切る
+ * メロディをフレーズ(息継ぎまでのまとまり)に分ける。
+ * 音符に区切りの印(phrase、記法では / )が1つでもあれば、印だけで区切る。
+ * なければ自動:半拍ほどの休みか、2小節の長さで区切り、1〜2音だけのまとまりは近い方へつなげる
  * @param {Song} song
  * @param {string} sectionId
+ * @param {string} [trackId]
  * @returns {Note[][]}
  */
-export function melodyPhrases(song, sectionId) {
-  const notes = melodyNotes(song, sectionId);
+export function melodyPhrases(song, sectionId, trackId) {
+  const notes = melodyNotes(song, sectionId, trackId);
   /** @type {Note[][]} */
   const phrases = [];
-  const maxSpan = 2 * ticksPerBar(song.timeSignature);
+  if (notes.some((n) => n.phrase)) {
+    for (const n of notes) {
+      if (n.phrase || phrases.length === 0) phrases.push([n]);
+      else phrases[phrases.length - 1].push(n);
+    }
+    return phrases;
+  }
+  const maxSpan = PHRASE_RULES.maxBars * ticksPerBar(song.timeSignature);
   for (const n of notes) {
     const cur = phrases[phrases.length - 1];
     const prev = cur?.[cur.length - 1];
-    if (!cur || !prev || n.start - (prev.start + prev.length) >= 200 || n.start - cur[0].start >= maxSpan) phrases.push([n]);
+    if (!cur || !prev || n.start - (prev.start + prev.length) >= PHRASE_RULES.restTicks || n.start - cur[0].start >= maxSpan) phrases.push([n]);
     else cur.push(n);
   }
   // 1〜2音だけの短いまとまり(次のフレーズへの入りの音など)は、近い方のフレーズにつなげる
   for (let i = 0; i < phrases.length; i++) {
     const p = phrases[i];
-    if (p.length > 2 || phrases.length === 1) continue;
+    if (p.length > PHRASE_RULES.mergeNotes || phrases.length === 1) continue;
     const last = p[p.length - 1];
     const next = phrases[i + 1];
     const prev = phrases[i - 1];
@@ -100,10 +129,11 @@ export function melodyPhrases(song, sectionId) {
  * @param {Song} song
  * @param {string} sectionId
  * @param {string} text
+ * @param {string} [trackId] 歌のパート(省略で主旋律)
  * @returns {{ lyrics: { noteId: string, kana: string }[], lines: LyricLine[], invalid: string[], fits: boolean }}
  */
-export function assignLyrics(song, sectionId, text) {
-  const phrases = melodyPhrases(song, sectionId);
+export function assignLyrics(song, sectionId, text, trackId) {
+  const phrases = melodyPhrases(song, sectionId, trackId);
   const rawLines = text.split(/[\n\/]/).map((l) => l.trim()).filter(Boolean);
   const all = splitMorae(text);
   /** @type {{ noteId: string, kana: string }[]} */
@@ -138,13 +168,14 @@ export function assignLyrics(song, sectionId, text) {
  * いま入っている歌詞を、フレーズごとの行にして返す(編集画面・AI向け)
  * @param {Song} song
  * @param {string} itemId 並び順のどこか
+ * @param {string} [trackId] 歌のパート(省略で主旋律)
  * @returns {LyricLine[]}
  */
-export function lyricLines(song, itemId) {
+export function lyricLines(song, itemId, trackId) {
   const item = song.arrangement.find((a) => a.id === itemId);
   if (!item) return [];
   const byNote = new Map(item.lyrics.map((l) => [l.noteId, l.kana]));
-  return melodyPhrases(song, item.sectionId).map((phrase) => {
+  return melodyPhrases(song, item.sectionId, trackId).map((phrase) => {
     const kana = phrase.map((n) => byNote.get(n.id) ?? '');
     return { notes: phrase.length, morae: kana.filter(Boolean).length, kana: kana.join('') };
   });
@@ -154,15 +185,16 @@ export function lyricLines(song, itemId) {
  * 歌わせる時の、音符ごとの歌詞。歌詞のない音符は、前の音の母音を伸ばす(フレーズの頭なら「ら」)
  * @param {Song} song
  * @param {string} itemId
+ * @param {string} [trackId] 歌のパート(省略で主旋律)
  * @returns {{ note: Note, kana: string }[]}
  */
-export function sungNotes(song, itemId) {
+export function sungNotes(song, itemId, trackId) {
   const item = song.arrangement.find((a) => a.id === itemId);
   if (!item) return [];
   const byNote = new Map(item.lyrics.map((l) => [l.noteId, l.kana]));
   /** @type {{ note: Note, kana: string }[]} */
   const out = [];
-  for (const phrase of melodyPhrases(song, item.sectionId)) {
+  for (const phrase of melodyPhrases(song, item.sectionId, trackId)) {
     let prev = '';
     for (const note of phrase) {
       let kana = byNote.get(note.id) ?? '';
