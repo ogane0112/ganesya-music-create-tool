@@ -21,6 +21,9 @@ const ROLE_MIX = /** @type {Record<TrackRole, { pan: number, room: number, rever
   other: { pan: -0.25, room: 0.1, reverb: 0.3, delay: 0.16, lowCut: 200, eq: { freq: 2800, gain: -1.5 } },
 });
 
+/** 役割ごとの左右・残響の既定(画面の初期値に使う) @param {TrackRole} role */
+export const roleDefaults = (role) => ROLE_MIX[role] ?? ROLE_MIX.other;
+
 export const KICKS = new Set([35, 36]);
 /** うねり:バスドラムの瞬間にこの音量まで下げ、少し待ってから戻す */
 export const DUCK = { depth: 0.25, hold: 0.03, recover: 0.07 };
@@ -31,6 +34,7 @@ export const DUCK = { depth: 0.25, hold: 0.03, recover: 0.07 };
  * @property {GainNode} duck うねり用
  * @property {import('./instruments/index.js').InstrumentVoice} voice
  * @property {StereoPannerNode} pan
+ * @property {GainNode} reverbSend 長い残響への送り
  * @property {string} instrument
  * @property {boolean} sidechain
  * @property {boolean} isDrums
@@ -195,7 +199,7 @@ export function createMix(ctx, song, destination, opts = {}) {
     const gain = ctx.createGain();
     gain.gain.value = trackGain(song, t.id);
     const pan = ctx.createStereoPanner();
-    pan.pan.value = role.pan;
+    pan.pan.value = t.pan ?? role.pan;
     /** @type {AudioNode} */
     let tail = duck;
     if (role.lowCut > 0) {
@@ -218,18 +222,17 @@ export function createMix(ctx, song, destination, opts = {}) {
       send.gain.value = role.room;
       pan.connect(send).connect(room);
     }
-    if (role.reverb > 0) {
-      const send = ctx.createGain();
-      send.gain.value = role.reverb;
-      pan.connect(send).connect(reverb);
-    }
+    // 長い残響への送りは、あとから量を変えられるよう、いつも作っておく
+    const reverbSend = ctx.createGain();
+    reverbSend.gain.value = t.reverb ?? role.reverb;
+    pan.connect(reverbSend).connect(reverb);
     if (role.delay > 0) {
       const send = ctx.createGain();
       send.gain.value = role.delay;
       pan.connect(send).connect(delayIn);
     }
     tracks.set(t.id, {
-      gain, duck, pan,
+      gain, duck, pan, reverbSend,
       voice: withVoices ? cachedVoice(t.instrument, ctx, duck) : { play() {} },
       instrument: t.instrument,
       sidechain: !!t.sidechain,
@@ -282,7 +285,10 @@ export function updateMix(ctx, mix, song) {
   for (const t of song.tracks) {
     const entry = mix.tracks.get(t.id);
     if (!entry) continue;
+    const role = ROLE_MIX[t.role] ?? ROLE_MIX.other;
     entry.gain.gain.setTargetAtTime(trackGain(song, t.id), ctx.currentTime, 0.02);
+    entry.pan.pan.setTargetAtTime(t.pan ?? role.pan, ctx.currentTime, 0.02);
+    entry.reverbSend.gain.setTargetAtTime(t.reverb ?? role.reverb, ctx.currentTime, 0.05);
     if (entry.instrument !== t.instrument) {
       entry.voice = cachedVoice(t.instrument, ctx, entry.duck);
       entry.instrument = t.instrument;

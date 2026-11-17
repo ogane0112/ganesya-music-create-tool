@@ -8,7 +8,7 @@ import { pitchClassOf } from '../../core/theory.js';
 /** 楽器 → General MIDI の音色番号(0始まり) */
 const PROGRAMS = /** @type {Record<string, number>} */ ({
   piano: 0, 'acoustic-guitar': 25, 'electric-guitar-clean': 27, 'electric-guitar-distortion': 30, bass: 33,
-  strings: 48, 'electric-piano': 4, koto: 107, 'synth-lead': 80, 'synth-pad': 89, bell: 10, supersaw: 81,
+  strings: 48, 'electric-piano': 4, koto: 107, brass: 61, organ: 19, 'synth-bass': 38, choir: 52, taiko: 116, shamisen: 106, shinobue: 73, 'synth-lead': 80, 'synth-pad': 89, bell: 10, supersaw: 81,
 });
 
 /** 可変長の数 @param {number} n */

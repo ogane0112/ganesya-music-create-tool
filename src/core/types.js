@@ -21,8 +21,8 @@ export const FORMAT_VERSION = 1;
 /** @typedef {'setsunai'|'shissou'|'dark'|'akarui'|'wafu-edm'|'rock'} Mood 雰囲気(切ない、疾走感、ダーク・不穏、明るい・爽やか、和風EDM) */
 
 /**
- * 楽器11種(10種+EDM用のスーパーソー)
- * @typedef {'piano'|'acoustic-guitar'|'electric-guitar-clean'|'electric-guitar-distortion'|'bass'|'drums'|'strings'|'synth-lead'|'synth-pad'|'bell'|'supersaw'|'electric-piano'|'koto'} InstrumentId
+ * 楽器20種
+ * @typedef {'piano'|'acoustic-guitar'|'electric-guitar-clean'|'electric-guitar-distortion'|'bass'|'drums'|'strings'|'synth-lead'|'synth-pad'|'bell'|'supersaw'|'electric-piano'|'koto'|'brass'|'organ'|'synth-bass'|'choir'|'taiko'|'shamisen'|'shinobue'} InstrumentId
  */
 
 /**
@@ -39,6 +39,8 @@ export const FORMAT_VERSION = 1;
  * @property {number} volume 0〜1
  * @property {boolean} [muted] 消音
  * @property {boolean} [sidechain] バスドラムに合わせて音量をへこませる(EDMのうねり)
+ * @property {number} [pan] 左右の位置 -1(左)〜1(右)。省略すると役割ごとの既定
+ * @property {number} [reverb] 残響の量 0〜1。省略すると役割ごとの既定
  * @property {string} [name] 表示名
  */
 
@@ -107,6 +109,7 @@ export const FORMAT_VERSION = 1;
  * @property {Key} key
  * @property {[number, number]} timeSignature
  * @property {Mood | null} mood
+ * @property {number} [humanize] 演奏の揺らぎ(タイミング・強弱)の強さ 0〜1。省略は1(つける)、0 で楽譜どおり
  * @property {Track[]} tracks
  * @property {Section[]} sections
  * @property {ArrangementItem[]} arrangement

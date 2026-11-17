@@ -14,6 +14,13 @@ export const INSTRUMENTS = [
   { id: 'synth-pad', label: 'シンセパッド' },
   { id: 'bell', label: 'ベル' },
   { id: 'koto', label: '琴' },
+  { id: 'brass', label: 'ブラス' },
+  { id: 'organ', label: 'オルガン' },
+  { id: 'synth-bass', label: 'シンセベース' },
+  { id: 'choir', label: '合唱' },
+  { id: 'taiko', label: '和太鼓' },
+  { id: 'shamisen', label: '三味線' },
+  { id: 'shinobue', label: '篠笛' },
   { id: 'supersaw', label: 'シンセ(厚い音)' },
 ];
 

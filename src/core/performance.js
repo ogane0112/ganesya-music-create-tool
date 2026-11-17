@@ -144,16 +144,17 @@ export function perform(song, timeline) {
 export function performSong(song, opts = {}) {
   const timeline = buildTimeline(song, opts);
   const expression = perform(song, timeline);
+  const h = song.humanize ?? 1; // 揺らぎの強さ(0 = 楽譜どおり)
   /** @type {PerformedNote[]} */
   const notes = timeline.events.map((ev) => {
     const p = expression.get(ev);
     return {
       trackId: ev.trackId,
       itemId: ev.itemId,
-      time: Math.max(0, ticksToSeconds(ev.tick, song.tempo) + (p?.offset ?? 0)),
+      time: Math.max(0, ticksToSeconds(ev.tick, song.tempo) + (p?.offset ?? 0) * h),
       duration: ticksToSeconds(ev.length, song.tempo),
       pitch: ev.pitch,
-      velocity: p?.velocity ?? ev.velocity,
+      velocity: p ? Math.max(1, Math.min(127, Math.round(ev.velocity + (p.velocity - ev.velocity) * h))) : ev.velocity,
     };
   });
   notes.sort((a, b) => a.time - b.time);

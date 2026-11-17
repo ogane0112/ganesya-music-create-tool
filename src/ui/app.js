@@ -14,6 +14,7 @@ import {
 import { assignLyrics, lyricLines } from '../core/lyrics.js';
 import { listSingers, singerOf, singItem, voicevoxAvailable } from '../connectors/voicevox.js';
 import { hasVocal, setVocal } from '../audio/vocals.js';
+import { roleDefaults } from '../audio/render.js';
 import { buildTimeline } from '../core/timeline.js';
 import { ticksToSeconds } from '../core/theory.js';
 import { validateSong } from '../core/validate.js';
@@ -98,6 +99,8 @@ export function mountApp(root) {
   /** @type {Map<string, string>} 書きかけの歌詞(並び順の項目ごと) */
   const lyricDrafts = new Map();
   let lyricsOpen = false;
+  /** @type {Set<string>} 「くわしく」を開いているパート */
+  const mixOpen = new Set();
   /** @type {string | null} 歌わせている途中の項目 */
   let singing = null;
   /** @type {{ id: number, label: string }[] | null} 歌い手の一覧(VOICEVOX につながった時に読む) */
@@ -853,6 +856,14 @@ export function mountApp(root) {
         h('h2', null, '楽器'),
         h('span', { class: 'muted small' }, '聴きながら切り替えられます'),
       ),
+      h('label', { class: 'humanize' },
+        h('span', null, '演奏の揺らぎ'),
+        h('input', {
+          type: 'range', min: 0, max: 1, step: 0.05, value: song.humanize ?? 1, 'aria-label': '演奏の揺らぎ(0で楽譜どおり)',
+          onChange: (/** @type {Event} */ e) => apply(updateSongSettings(song, { humanize: Number(/** @type {HTMLInputElement} */ (e.target).value) }), { label: '演奏の揺らぎ', keepPlaying: true }),
+        }),
+        h('span', { class: 'muted small' }, (song.humanize ?? 1) === 0 ? '楽譜どおり' : (song.humanize ?? 1) === 1 ? '標準' : `${Math.round((song.humanize ?? 1) * 100)}%`),
+      ),
       h('ul', { class: 'partlist' },
         song.tracks.map((t) => {
           const name = t.name ?? t.id;
@@ -872,6 +883,20 @@ export function mountApp(root) {
               'aria-label': `${name}の音色`,
               onChange: (/** @type {Event} */ e) => change([{ id: t.id, instrument: /** @type {any} */ (/** @type {HTMLSelectElement} */ (e.target).value) }], `${name}の音色`),
             }, INSTRUMENTS.filter((i) => i.id !== 'drums').map((i) => h('option', { value: i.id, selected: i.id === t.instrument }, i.label))),
+            h('details', {
+              class: 'part-more', open: mixOpen.has(t.id),
+              onToggle: (/** @type {Event} */ e) => { if (/** @type {HTMLDetailsElement} */ (e.target).open) mixOpen.add(t.id); else mixOpen.delete(t.id); },
+            },
+              h('summary', null, 'くわしく(左右・残響)'),
+              h('label', null, '左右', h('input', {
+                type: 'range', min: -1, max: 1, step: 0.05, value: t.pan ?? roleDefaults(t.role).pan, 'aria-label': `${name}の左右の位置`,
+                onChange: (/** @type {Event} */ e) => change([{ id: t.id, pan: Number(/** @type {HTMLInputElement} */ (e.target).value) }], `${name}の左右`),
+              })),
+              h('label', null, '残響', h('input', {
+                type: 'range', min: 0, max: 1, step: 0.05, value: t.reverb ?? roleDefaults(t.role).reverb, 'aria-label': `${name}の残響の量`,
+                onChange: (/** @type {Event} */ e) => change([{ id: t.id, reverb: Number(/** @type {HTMLInputElement} */ (e.target).value) }], `${name}の残響`),
+              })),
+            ),
           );
         }),
       ),

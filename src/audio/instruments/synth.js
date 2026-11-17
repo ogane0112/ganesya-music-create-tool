@@ -459,6 +459,48 @@ const bell = def('bell', (ctx, out) => {
   };
 });
 
+// ---- 録音が読めない時の代わり(新しい楽器) ----
+const organ = sustained('organ', {
+  waves: [['sine', 0, 0.5], ['sine', 1200, 0.3], ['sine', 1900, 0.15], ['triangle', -1200, 0.3]],
+  env: { a: 0.02, d: 0.1, s: 0.95, r: 0.12 }, cutoff: 4000, gain: 0.3,
+});
+const brass = sustained('brass', {
+  waves: [['sawtooth', -6, 0.4], ['sawtooth', 6, 0.4]],
+  env: { a: 0.06, d: 0.3, s: 0.8, r: 0.15 }, cutoff: 2000, q: 1.2, gain: 0.3, filterEnv: 2.2, vibrato: 6, vibratoDelay: 0.5,
+});
+const synthBass = sustained('synth-bass', {
+  waves: [['sawtooth', 0, 0.5], ['square', -1200, 0.5]],
+  env: { a: 0.005, d: 0.2, s: 0.7, r: 0.08 }, cutoff: 700, q: 3, gain: 0.35, filterEnv: 2.5,
+});
+const choir = sustained('choir', {
+  waves: [['sawtooth', -8, 0.3], ['sawtooth', 8, 0.3], ['triangle', 0, 0.3]],
+  env: { a: 0.35, d: 0.6, s: 0.85, r: 0.5 }, cutoff: 1400, gain: 0.3, vibrato: 8, vibratoDelay: 0.5,
+});
+const shinobue = sustained('shinobue', {
+  waves: [['sine', 0, 0.6], ['triangle', 1200, 0.15]],
+  env: { a: 0.04, d: 0.2, s: 0.8, r: 0.12 }, cutoff: 5000, gain: 0.35, vibrato: 14, vibratoDelay: 0.3,
+});
+const shamisen = plucked('shamisen', { seconds: 1.4, decay: 0.99, brightness: 0.95, gain: 0.5, cutoff: 7000 });
+const taiko = def('taiko', (ctx, out) => {
+  const bus = ctx.createGain();
+  bus.gain.value = 0.9;
+  bus.connect(out);
+  return {
+    play({ time, pitch, velocity }) {
+      const f = midiToHz(pitch);
+      const osc = ctx.createOscillator();
+      osc.frequency.setValueAtTime(f * 2, time);
+      osc.frequency.exponentialRampToValueAtTime(f, time + 0.08);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(velGain(velocity), time);
+      g.gain.setTargetAtTime(0.0001, time + 0.01, 0.25);
+      osc.connect(g).connect(bus);
+      osc.start(time);
+      osc.stop(time + 1.5);
+    },
+  };
+});
+
 // ---- スーパーソー(EDMの厚いシンセ) ----
 // 少しずつ音程をずらしたのこぎり波を7本重ね、左右に広げる。短い音は明るさがすぐ落ちて「はじく」音になる
 const supersaw = def('supersaw', (ctx, out) => {
@@ -495,4 +537,4 @@ const supersaw = def('supersaw', (ctx, out) => {
 });
 
 /** @type {Instrument[]} */
-export const SYNTH_INSTRUMENTS = [piano, acousticGuitar, electricClean, electricDist, bass, drums, strings, synthLead, synthPad, bell, supersaw, electricPiano, koto];
+export const SYNTH_INSTRUMENTS = [piano, acousticGuitar, electricClean, electricDist, bass, drums, strings, synthLead, synthPad, bell, supersaw, electricPiano, koto, brass, organ, synthBass, choir, taiko, shamisen, shinobue];

@@ -66,6 +66,7 @@ export function checkShape(song) {
   const tsOk = Array.isArray(ts) && ts.length === 2 && isInt(ts[0]) && isInt(ts[1]) && ts[0] > 0 && [1, 2, 4, 8, 16].includes(ts[1]);
   if (!tsOk) bad('timeSignature', '拍子は [拍の数, 拍の単位] の形である必要があります');
 
+  if (song.humanize !== undefined && !(typeof song.humanize === 'number' && song.humanize >= 0 && song.humanize <= 1)) bad('humanize', '揺らぎの強さは0〜1である必要があります');
   if (song.mood !== null && !isMood(song.mood)) bad('mood', `知らない雰囲気です: ${String(song.mood)}`);
 
   /** @type {Set<string>} */
@@ -82,6 +83,10 @@ export function checkShape(song) {
       if (!isInstrument(t.instrument)) bad(`${p}.instrument`, `知らない楽器です: ${String(t.instrument)}`);
       if (typeof t.volume !== 'number' || t.volume < 0 || t.volume > 1) bad(`${p}.volume`, '音量は0〜1である必要があります');
       if (t.muted !== undefined && typeof t.muted !== 'boolean') bad(`${p}.muted`, '消音は true か false である必要があります');
+      for (const k of /** @type {const} */ (['pan', 'reverb'])) {
+        const lo = k === 'pan' ? -1 : 0;
+        if (t[k] !== undefined && !(typeof t[k] === 'number' && t[k] >= lo && t[k] <= 1)) bad(`${p}.${k}`, `${k === 'pan' ? '左右の位置は-1〜1' : '残響の量は0〜1'}である必要があります`);
+      }
       if (t.sidechain !== undefined && typeof t.sidechain !== 'boolean') bad(`${p}.sidechain`, 'sidechain は true か false である必要があります');
       if (t.name !== undefined && !isStr(t.name)) bad(`${p}.name`, 'パートの名前は文字列である必要があります');
     });

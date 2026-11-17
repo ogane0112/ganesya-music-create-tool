@@ -218,3 +218,12 @@ button.wide { width: 100%; margin-bottom: 12px; }
 .lyric-status .bad { color: var(--danger); font-weight: 700; }
 .singer { margin-top: 12px; max-width: 360px; }
 @media (prefers-color-scheme: dark) { .lyric-status .good { color: #6fd39a; } }
+
+/* 楽器のくわしい設定・演奏の揺らぎ */
+.humanize { display: grid; grid-template-columns: minmax(118px, 150px) 1fr 5em; gap: 10px; align-items: center; margin-bottom: 12px; font-weight: 700; }
+.humanize input[type='range'] { width: 100%; accent-color: var(--accent); }
+.part-more { grid-column: 1 / -1; }
+.part-more summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); min-height: 32px; display: flex; align-items: center; }
+.part-more label { display: grid; grid-template-columns: 4em 1fr; gap: 10px; align-items: center; font-size: 0.9rem; }
+.part-more input[type='range'] { width: 100%; accent-color: var(--accent); min-height: 32px; }
+@media (max-width: 560px) { .humanize { grid-template-columns: 1fr 1fr; } .humanize span:last-child { display: none; } }

@@ -377,7 +377,8 @@ export function setConnectorSettings(song, connectorId, settings) {
  * @property {number} [tempo]
  * @property {Key} [key] キーを変えると音符とコードも一緒に移す
  * @property {import('./types.js').Mood | null} [mood]
- * @property {{ id: string, instrument?: import('./types.js').InstrumentId, volume?: number, muted?: boolean, name?: string }[]} [tracks]
+ * @property {number} [humanize] 演奏の揺らぎの強さ 0〜1(0 で楽譜どおり)
+ * @property {{ id: string, instrument?: import('./types.js').InstrumentId, volume?: number, muted?: boolean, name?: string, pan?: number, reverb?: number }[]} [tracks]
  */
 
 /**
@@ -399,6 +400,10 @@ export function updateSongSettings(song, settings) {
       return fail(`テンポは${TEMPO_MIN}〜${TEMPO_MAX}にしてください`, '速さを範囲の中で選んでください');
     }
     next.tempo = settings.tempo;
+  }
+  if (settings.humanize !== undefined) {
+    if (!(settings.humanize >= 0 && settings.humanize <= 1)) return fail('揺らぎの強さは0〜1にしてください', '0で楽譜どおり、1で標準です');
+    next.humanize = settings.humanize;
   }
   if (settings.mood !== undefined) {
     if (settings.mood !== null && !isMood(settings.mood)) return fail(`知らない雰囲気です: ${settings.mood}`, '一覧から選んでください');
@@ -422,6 +427,14 @@ export function updateSongSettings(song, settings) {
       if (change.volume !== undefined) {
         if (!(change.volume >= 0 && change.volume <= 1)) return fail('音量は0〜1にしてください', '音量を範囲の中で選んでください');
         t.volume = change.volume;
+      }
+      if (change.pan !== undefined) {
+        if (!(change.pan >= -1 && change.pan <= 1)) return fail('左右の位置は-1(左)〜1(右)にしてください', '範囲の中で選んでください');
+        t.pan = change.pan;
+      }
+      if (change.reverb !== undefined) {
+        if (!(change.reverb >= 0 && change.reverb <= 1)) return fail('残響の量は0〜1にしてください', '範囲の中で選んでください');
+        t.reverb = change.reverb;
       }
       if (change.muted !== undefined) t.muted = change.muted;
       if (change.name !== undefined) t.name = change.name;

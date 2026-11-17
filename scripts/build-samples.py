@@ -23,7 +23,7 @@ RATE = 44100
 # id: (GMの音色番号, 一番低い音, 一番高い音, 鍵盤を押している秒数, 1音あたりの録音枠の秒数, 録る強さ)
 SOFT_HARD = (58, 112)
 THREE = (45, 82, 118)
-STEREO = {'piano', 'electric-piano', 'strings', 'drums'}
+STEREO = {'piano', 'electric-piano', 'strings', 'drums', 'choir', 'organ'}
 INSTRUMENTS = {
     'piano': (0, 33, 99, 3.5, 8.0, THREE),
     'electric-piano': (4, 36, 96, 3.0, 6.0, SOFT_HARD),
@@ -34,6 +34,13 @@ INSTRUMENTS = {
     'strings': (48, 45, 99, 7.0, 9.0, (100,)),
     'bell': (10, 57, 99, 1.5, 5.0, (100,)),
     'koto': (107, 48, 93, 2.0, 5.0, SOFT_HARD),
+    'brass': (61, 40, 84, 2.5, 4.5, (100,)),
+    'organ': (19, 36, 96, 5.0, 7.0, (100,)),
+    'synth-bass': (38, 24, 60, 2.0, 3.5, (100,)),
+    'choir': (52, 48, 88, 5.0, 7.0, (100,)),
+    'taiko': (116, 36, 72, 1.5, 3.0, (100,)),
+    'shamisen': (106, 48, 84, 1.5, 3.5, (100,)),
+    'shinobue': (73, 60, 96, 2.5, 4.0, (100,)),
 }
 DRUM_VELOCITIES = (40, 68, 96, 122)
 # ドラム(General MIDI の標準キット)。番号: 秒

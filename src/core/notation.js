@@ -1,6 +1,6 @@
 // かんたん記法:メロディとコード進行を短い文字で書く。AI(MCP)が書きやすく、人も読める。
 //   メロディ: "E5:1 D5:0.5 r:0.5 | C5:2 ..."   音の名前:長さ(拍)。r は休み。| は小節の区切り(飾り。なくてもよい)
-//             長さは小数か分数(3連符は 1/3)。末尾に ! を付けると強く
+//             長さは小数か分数(3連符は 1/3)。末尾に ! を付けると強く、@数字(1〜127)で強さを直接書ける(例 E5:1@60 は弱く、E5:1@120 は強く。何も付けないと94)
 //   コード  : "Am7:4 F:2 G:2"                   コード名:長さ(拍)
 import { TICKS_PER_BEAT } from './types.js';
 import { parseChord, pitchClassOf, pitchName } from './theory.js';
@@ -44,8 +44,10 @@ export function parseMelody(text) {
   const notes = [];
   let pos = 0; // 拍(誤差をためないよう、ティックへは都度丸める)
   for (const token of tokens(text)) {
-    const m = /^([^:!]+):([^:!]+)(!?)$/.exec(token);
-    if (!m) throw new NotationError(`読めません: "${token}"(「音の名前:長さ」で書きます。例 E5:1、休みは r:1)`);
+    const m = /^([^:!@]+):([^:!@]+)(!?)(?:@(\d+))?$/.exec(token);
+    if (!m) throw new NotationError(`読めません: "${token}"(「音の名前:長さ」で書きます。例 E5:1、休みは r:1、強さは E5:1@80)`);
+    const velocity = m[4] === undefined ? (m[3] ? 112 : 94) : Number(m[4]);
+    if (velocity < 1 || velocity > 127) throw new NotationError(`強さは1〜127にしてください: "${token}"`);
     const beats = parseBeats(m[2], token);
     const start = Math.round(pos * TICKS_PER_BEAT);
     const end = Math.round((pos + beats) * TICKS_PER_BEAT);
@@ -54,7 +56,7 @@ export function parseMelody(text) {
     const pitch = parsePitchName(m[1]);
     if (pitch === null) throw new NotationError(`音の名前が読めません: "${token}"(例 C4、F#4、Bb3。C4 が真ん中のド)`);
     const span = end - start;
-    notes.push({ start, length: Math.max(30, span >= 120 ? span - 15 : span), pitch, velocity: m[3] ? 112 : 94 });
+    notes.push({ start, length: Math.max(30, span >= 120 ? span - 15 : span), pitch, velocity });
   }
   return notes;
 }
@@ -93,7 +95,7 @@ function beatsText(ticks) {
 /**
  * 音符をかんたん記法にする(同時に鳴る音は一番高い音だけ)。小節ごとに | を入れる
  * @param {{ start: number, length: number, pitch: number, velocity?: number }[]} notes
- * @param {{ flat?: boolean, barTicks?: number, totalTicks?: number }} [opts]
+ * @param {{ flat?: boolean, barTicks?: number, totalTicks?: number, velocities?: boolean }} [opts] velocities=true なら、強さを @数字 で書き出す(標準の94は省く)
  */
 export function formatMelody(notes, opts = {}) {
   const barTicks = opts.barTicks ?? 1920;
@@ -118,7 +120,9 @@ export function formatMelody(notes, opts = {}) {
     if (end <= n.start) end = n.start + n.length;
     rest(n.start);
     if (pos > 0 && pos % barTicks === 0) out.push('|');
-    out.push(`${pitchName(n.pitch, opts.flat)}:${beatsText(end - n.start)}${(n.velocity ?? 0) >= 108 ? '!' : ''}`);
+    const v = n.velocity ?? 94;
+    const mark = opts.velocities ? (v === 94 ? '' : v === 112 ? '!' : `@${v}`) : v >= 108 ? '!' : '';
+    out.push(`${pitchName(n.pitch, opts.flat)}:${beatsText(end - n.start)}${mark}`);
     pos = end;
   });
   if (opts.totalTicks) rest(opts.totalTicks);

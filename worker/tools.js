@@ -72,8 +72,9 @@ const stripIds = (notes) => notes.map(({ id: _id, ...rest }) => rest);
  * AI向けの要約:設定、並び、部品ごとのコード進行とメロディ(かんたん記法)
  * @param {string} id
  * @param {Song} song
+ * @param {{ velocities?: boolean }} [opts] velocities=true で、メロディに強さ(@数字)を付ける
  */
-export function summarize(id, song) {
+export function summarize(id, song, opts = {}) {
   const flat = keyPrefersFlat(song.key);
   const barTicks = ticksPerBar(song.timeSignature);
   const melodyTrack = song.tracks.find((t) => t.role === 'vocal')?.id;
@@ -86,7 +87,8 @@ export function summarize(id, song) {
     key: song.key,
     mood: song.mood,
     seconds: Math.round(ticksToSeconds(tl.totalTicks, song.tempo)),
-    tracks: song.tracks.map((t) => ({ id: t.id, role: t.role, name: t.name, instrument: t.instrument, volume: t.volume, muted: !!t.muted })),
+    humanize: song.humanize ?? 1,
+    tracks: song.tracks.map((t) => ({ id: t.id, role: t.role, name: t.name, instrument: t.instrument, volume: t.volume, muted: !!t.muted, pan: t.pan, reverb: t.reverb })),
     // lyrics はフレーズ(息継ぎまで)ごとの行。notes がその行に必要な音数、kana が今の歌詞
     arrangement: song.arrangement.map((a, index) => ({
       index, itemId: a.id, sectionId: a.sectionId, name: song.sections.find((s) => s.id === a.sectionId)?.name,
@@ -98,7 +100,7 @@ export function summarize(id, song) {
       kind: s.kind,
       bars: s.bars,
       chords: formatChords(s.chords),
-      melody: melodyTrack ? formatMelody(s.parts[melodyTrack] ?? [], { flat, barTicks, totalTicks: s.bars * barTicks }) : '',
+      melody: melodyTrack ? formatMelody(s.parts[melodyTrack] ?? [], { flat, barTicks, totalTicks: s.bars * barTicks, velocities: opts.velocities }) : '',
     })),
   };
 }
@@ -175,12 +177,12 @@ export const TOOLS = [
     description: '曲1つを読む。既定(summary)は設定・並び・部品ごとのコード進行とメロディをかんたん記法で返す。detail: "full" で全パートの音符を含む曲データをそのまま返す(大きいので必要な時だけ。sectionId で1つの部品に絞れる)。',
     inputSchema: {
       type: 'object',
-      properties: { songId: { type: 'string' }, detail: { type: 'string', enum: ['summary', 'full'] }, sectionId: { type: 'string', description: 'full の時、この部品だけ返す' } },
+      properties: { songId: { type: 'string' }, detail: { type: 'string', enum: ['summary', 'full'] }, sectionId: { type: 'string', description: 'full の時、この部品だけ返す' }, velocity: { type: 'boolean', description: 'true なら、メロディの各音に強さ(@数字)を付けて返す' } },
       required: ['songId'],
     },
     run: async (args, ctx) => {
       const song = await ctx.store.get(args.songId);
-      if (args.detail !== 'full') return summarize(args.songId, song);
+      if (args.detail !== 'full') return summarize(args.songId, song, { velocities: !!args.velocity });
       if (args.sectionId) {
         const section = song.sections.find((s) => s.id === args.sectionId);
         if (!section) throw new ToolError({ code: 'not_found', message: `部品が見つかりません: ${args.sectionId}`, hint: 'get_song の summary で sectionId を確かめてください' });
@@ -367,7 +369,7 @@ export const TOOLS = [
   },
   {
     name: 'update_song_settings',
-    description: '曲名、テンポ、キー(変えると音符とコードも一緒に移る)、パートの楽器・音量・消音を変えて保存する。',
+    description: '曲名、テンポ、キー(変えると音符とコードも一緒に移る)、演奏の揺らぎ(humanize)、パートの楽器・音量・消音・左右の位置(pan)・残響の量(reverb)を変えて保存する。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -376,14 +378,15 @@ export const TOOLS = [
         artist: { type: 'string' },
         tempo: { type: 'number' },
         key: KEY_SCHEMA,
-        tracks: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, instrument: { type: 'string' }, volume: { type: 'number', description: '0〜1' }, muted: { type: 'boolean' } }, required: ['id'] } },
+        humanize: { type: 'number', description: '演奏の揺らぎ(タイミング・強弱)の強さ。0 で楽譜どおり、1 が標準' },
+        tracks: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, instrument: { type: 'string' }, volume: { type: 'number', description: '0〜1' }, muted: { type: 'boolean' }, pan: { type: 'number', description: '左右の位置。-1(左)〜1(右)' }, reverb: { type: 'number', description: '残響の量。0〜1' } }, required: ['id'] } },
       },
       required: ['songId', 'revision'],
     },
     run: async (args, ctx) => {
       const song = await loadForWrite(ctx, args);
-      const { title, artist, tempo, key, tracks } = args;
-      return save(ctx, args.songId, unwrap(updateSongSettings(song, { title, artist, tempo, key, tracks }), song), args.revision);
+      const { title, artist, tempo, key, tracks, humanize } = args;
+      return save(ctx, args.songId, unwrap(updateSongSettings(song, { title, artist, tempo, key, tracks, humanize }), song), args.revision);
     },
   },
   {
