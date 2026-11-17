@@ -78,11 +78,12 @@ export async function prepareSong(song, sampleRate, opts = {}) {
   const { notes } = performSong(song, { itemIds: opts.itemIds });
   const instrumentOf = new Map(song.tracks.map((t) => [t.id, t.instrument]));
   // 録音した音源を使う楽器は、先に読み込んでおく(読み込めなければ合成の音で鳴る)
-  await Promise.all([...new Set(instrumentOf.values())].map((id) => getInstrument(id).load?.()));
+  const used = new Set([...instrumentOf.values(), ...notes.flatMap((n) => (n.instrument ? [n.instrument] : []))]);
+  await Promise.all([...used].map((id) => getInstrument(id).load?.()));
   /** @type {Map<string, () => Promise<void>>} */
   const jobs = new Map();
   for (const ev of notes) {
-    const instrument = instrumentOf.get(ev.trackId);
+    const instrument = ev.instrument ?? instrumentOf.get(ev.trackId);
     if (!instrument) continue;
     const duration = quantize(ev.duration);
     const velocity = velocityStep(ev.velocity);
@@ -145,13 +146,13 @@ export function cachedVoice(instrument, ctx, out) {
       const hit = lookupNote(instrument, ctx.sampleRate, note, round++);
       if (!hit) {
         live ??= getInstrument(instrument).setup(ctx, out);
-        live.play(note);
+        live.play(note.gain === undefined ? note : { ...note, velocity: Math.max(1, Math.min(127, Math.round(note.velocity * note.gain))) });
         return;
       }
       const src = ctx.createBufferSource();
       src.buffer = hit.buffer;
       const g = ctx.createGain();
-      g.gain.value = hit.gain;
+      g.gain.value = hit.gain * (note.gain ?? 1);
       src.connect(g).connect(out);
       src.start(note.time);
     },

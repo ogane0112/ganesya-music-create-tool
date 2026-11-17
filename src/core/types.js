@@ -89,6 +89,25 @@ export const FORMAT_VERSION = 1;
  * @property {string} id
  * @property {string} sectionId
  * @property {LyricSyllable[]} lyrics
+ * @property {Record<string, ItemMix>} [mix] この場所だけのパートごとの消音・音量(トラックIDで指す)
+ * @property {Partial<Record<'chordStyle' | 'bassStyle' | 'drumStyle' | 'leadStyle', string>>} [styles] この場所だけ伴奏の弾き方を変える(メロディとコードは部品のまま)
+ * @property {Record<string, InstrumentId>} [instruments] この場所だけパートの楽器を変える(トラックIDで指す)
+ * @property {ItemFx} [fx] この場所のつなぎの演出
+ */
+
+/**
+ * @typedef {object} ItemMix
+ * @property {boolean} [muted] この場所だけ消す
+ * @property {number} [volume] この場所だけの音量 0〜1(パートの音量の代わり)
+ */
+
+/**
+ * つなぎの演出。部品の頭と終わりに付ける
+ * @typedef {object} ItemFx
+ * @property {boolean} [crash] 頭にシンバル
+ * @property {boolean} [fill] 最後の1小節をドラムのフィルにする
+ * @property {boolean} [riser] 最後の2小節に上がっていく効果音
+ * @property {number} [break] 終わりの何拍を無音にするか(歌以外を止めて溜める)。0〜8
  */
 
 /**

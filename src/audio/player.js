@@ -161,7 +161,7 @@ export class Player {
       if (time > horizon) return;
       this.cursor++;
       if (time < ctx.currentTime - 0.02) continue; // 間に合わなかった音は飛ばす
-      playNote(mix, ev.trackId, { time, duration: ev.duration, pitch: ev.pitch, velocity: ev.velocity });
+      playNote(mix, ev.trackId, { time, duration: ev.duration, pitch: ev.pitch, velocity: ev.velocity, gain: ev.gain, instrument: ev.instrument });
     }
   }
 

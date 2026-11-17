@@ -188,7 +188,7 @@ export function createSkeleton(input) {
 /**
  * 作った中身を部品として曲の末尾に足す(曲を書き換える)
  * @param {Song} song
- * @param {{ name: string, kind: import('../types.js').SectionKind, bars: number }} layout
+ * @param {{ name: string, kind: import('../types.js').SectionKind, bars: number, key?: Key }} layout
  * @param {{ chords: Chord[], parts: Record<string, NoteData[]> }} content
  * @returns {Section}
  */
@@ -205,6 +205,7 @@ export function appendSection(song, layout, content) {
       Object.entries(content.parts).map(([tid, notes]) => [tid, notes.map((n) => ({ id: nextId('n'), ...n }))]),
     ),
   };
+  if (layout.key && (layout.key.tonic !== song.key.tonic || layout.key.mode !== song.key.mode)) section.key = { tonic: layout.key.tonic, mode: layout.key.mode };
   song.sections.push(section);
   song.arrangement.push({ id: nextId('a'), sectionId: section.id, lyrics: [] });
   return section;

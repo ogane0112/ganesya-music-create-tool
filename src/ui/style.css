@@ -227,3 +227,15 @@ button.wide { width: 100%; margin-bottom: 12px; }
 .part-more label { display: grid; grid-template-columns: 4em 1fr; gap: 10px; align-items: center; font-size: 0.9rem; }
 .part-more input[type='range'] { width: 100%; accent-color: var(--accent); min-height: 32px; }
 @media (max-width: 560px) { .humanize { grid-template-columns: 1fr 1fr; } .humanize span:last-child { display: none; } }
+
+/* この場所だけの設定 */
+.item-settings { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.item-settings summary { cursor: pointer; font-weight: 700; min-height: 44px; display: flex; align-items: center; gap: 8px; }
+.item-group { display: grid; gap: 6px; margin: 10px 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { min-height: 40px; border-radius: 99px; padding: 0 14px; font-size: 0.9rem; }
+.chip.on { background: var(--accent-soft); border-color: var(--accent); font-weight: 700; }
+.chip.off { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); font-weight: 700; }
+.chip-select { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; }
+.style-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.style-grid label { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }

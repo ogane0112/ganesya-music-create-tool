@@ -2,7 +2,8 @@
 // どの操作も元の曲データを変えず、検査を通した新しい曲データを返す。
 import { isInstrument, isMood, isSectionKind, TEMPO_MAX, TEMPO_MIN } from './catalog.js';
 import { collectIds, createIdFactory } from './ids.js';
-import { isValidTonic, keyPrefersFlat, mod12, pitchClassOf, ticksPerBar, transposeChord } from './theory.js';
+import { isValidTonic, keyPrefersFlat, mod12, pcName, pitchClassOf, ticksPerBar, transposeChord } from './theory.js';
+import { STYLE_NAMES } from './style-names.js';
 import { validateSong } from './validate.js';
 import { assignLyrics } from './lyrics.js';
 import { createEmptySong } from './song.js';
@@ -350,6 +351,175 @@ export function setLyrics(song, itemId, text, opts = {}) {
   item.lyrics = r.lyrics;
   const done = finish(next);
   return done.ok ? { ...done, warnings } : done;
+}
+
+// ---- 並びの1か所だけの設定 ----
+
+/**
+ * 並びの1か所だけの、消音・音量・弾き方・楽器・つなぎの演出を変える。
+ * 渡した項目だけを変える。null(または false・0)で、その項目を元に戻す
+ * @typedef {object} ItemPatch
+ * @property {Record<string, { muted?: boolean | null, volume?: number | null } | null> | null} [mix] トラックIDごと。null でそのパートを元に戻す、全体が null なら全部戻す
+ * @property {Partial<Record<'chordStyle' | 'bassStyle' | 'drumStyle' | 'leadStyle', string | null>> | null} [styles]
+ * @property {Record<string, import('./types.js').InstrumentId | null> | null} [instruments]
+ * @property {{ crash?: boolean, fill?: boolean, riser?: boolean, break?: number } | null} [fx]
+ *
+ * @param {Song} song
+ * @param {string} itemId
+ * @param {ItemPatch} patch
+ * @returns {SongResult}
+ */
+export function setItem(song, itemId, patch) {
+  const next = clone(song);
+  const item = next.arrangement.find((a) => a.id === itemId);
+  if (!item) return fail(`並び順の項目が見つかりません: ${itemId}`, '曲を読み込み直してください', 'not_found');
+  /** @param {Record<string, any>} o */
+  const empty = (o) => Object.keys(o).length === 0;
+
+  if (patch.mix !== undefined) {
+    if (patch.mix === null) delete item.mix;
+    else {
+      const mix = item.mix ?? {};
+      for (const [tid, m] of Object.entries(patch.mix)) {
+        if (!next.tracks.some((t) => t.id === tid)) return fail(`パートが見つかりません: ${tid}`, '曲のパートの一覧から選んでください', 'invalid_song');
+        if (m === null) delete mix[tid];
+        else {
+          const cur = { ...mix[tid] };
+          if (m.muted !== undefined) m.muted ? (cur.muted = true) : delete cur.muted;
+          if (m.volume !== undefined) m.volume === null ? delete cur.volume : (cur.volume = m.volume);
+          if (empty(cur)) delete mix[tid];
+          else mix[tid] = cur;
+        }
+      }
+      if (empty(mix)) delete item.mix;
+      else item.mix = mix;
+    }
+  }
+  if (patch.styles !== undefined) {
+    if (patch.styles === null) delete item.styles;
+    else {
+      const styles = { ...item.styles };
+      for (const [k, v] of Object.entries(patch.styles)) {
+        if (!(k in STYLE_NAMES)) return fail(`知らない弾き方の項目です: ${k}`, `${Object.keys(STYLE_NAMES).join(' / ')} から選んでください`, 'invalid_song');
+        if (v === null || v === '') delete (/** @type {any} */ (styles))[k];
+        else /** @type {any} */ (styles)[k] = v;
+      }
+      if (empty(styles)) delete item.styles;
+      else item.styles = styles;
+    }
+  }
+  if (patch.instruments !== undefined) {
+    if (patch.instruments === null) delete item.instruments;
+    else {
+      const instruments = { ...item.instruments };
+      for (const [tid, v] of Object.entries(patch.instruments)) {
+        if (v === null) delete instruments[tid];
+        else instruments[tid] = v;
+      }
+      if (empty(instruments)) delete item.instruments;
+      else item.instruments = instruments;
+    }
+  }
+  if (patch.fx !== undefined) {
+    if (patch.fx === null) delete item.fx;
+    else {
+      const fx = { ...item.fx };
+      for (const k of /** @type {const} */ (['crash', 'fill', 'riser'])) if (patch.fx[k] !== undefined) patch.fx[k] ? (fx[k] = true) : delete fx[k];
+      if (patch.fx.break !== undefined) patch.fx.break > 0 ? (fx.break = patch.fx.break) : delete fx.break;
+      if (empty(fx)) delete item.fx;
+      else item.fx = fx;
+    }
+  }
+  return finish(next);
+}
+
+// ---- 部品ごとの転調 ----
+
+/**
+ * キーから キーへ移る時の半音の数(明るい/暗いが違う時は、音の並びが同じになる位置を基準にする)
+ * @param {Key} from
+ * @param {Key} to
+ */
+function keyShift(from, to) {
+  /** @param {Key} k */
+  const majorPc = (k) => mod12((pitchClassOf(k.tonic) ?? 0) + (k.mode === 'minor' ? 3 : 0));
+  const shift = mod12(majorPc(to) - majorPc(from));
+  return shift > 6 ? shift - 12 : shift;
+}
+
+/**
+ * 部品の中身(コードと、ドラム以外の音符)を半音ずらす。部品を書き換える
+ * @param {Song} song
+ * @param {Section} section
+ * @param {number} shift
+ * @param {Key} newKey
+ */
+function shiftSection(song, section, shift, newKey) {
+  const flat = keyPrefersFlat(newKey);
+  const drums = new Set(song.tracks.filter((t) => t.role === 'drums').map((t) => t.id));
+  section.chords = section.chords.map((c) => ({ ...c, symbol: transposeChord(c.symbol, shift, flat) }));
+  for (const [tid, notes] of Object.entries(section.parts)) {
+    if (drums.has(tid)) continue;
+    section.parts[tid] = notes.map((n) => {
+      let p = n.pitch + shift;
+      while (p > 127) p -= 12;
+      while (p < 0) p += 12;
+      return { ...n, pitch: p };
+    });
+  }
+  section.key = song.key.tonic === newKey.tonic && song.key.mode === newKey.mode ? undefined : { tonic: newKey.tonic, mode: newKey.mode };
+  if (section.key === undefined) delete section.key;
+}
+
+/**
+ * 部品のキーを変える(転調)。その部品のコードと音符だけが移る。同じ部品を使っている場所は、全部変わる。
+ * 曲のキーと同じにすると、部品のキーの指定は外れる
+ * @param {Song} song
+ * @param {string} sectionId
+ * @param {Key} key
+ * @returns {SongResult}
+ */
+export function setSectionKey(song, sectionId, key) {
+  if (!key || !isValidTonic(key.tonic) || (key.mode !== 'major' && key.mode !== 'minor')) {
+    return fail('キーの書き方が正しくありません', '{ "tonic": "C#", "mode": "minor" } の形で指定してください', 'invalid_song');
+  }
+  const next = clone(song);
+  const section = next.sections.find((s) => s.id === sectionId);
+  if (!section) return fail(`部品が見つかりません: ${sectionId}`, '曲を読み込み直してください', 'not_found');
+  shiftSection(next, section, keyShift(section.key ?? next.key, key), key);
+  return finish(next, { strictSectionIds: [sectionId] });
+}
+
+/**
+ * 部品を半音ずらして複製し、並びに入れる(大サビで上げる、など)。元の部品はそのまま
+ * @param {Song} song
+ * @param {string} sectionId
+ * @param {{ semitones: number, name?: string, index?: number }} opts
+ * @returns {SongResult}
+ */
+export function addSectionCopy(song, sectionId, opts) {
+  const source = song.sections.find((s) => s.id === sectionId);
+  if (!source) return fail(`部品が見つかりません: ${sectionId}`, '曲を読み込み直してください', 'not_found');
+  if (!Number.isInteger(opts.semitones) || Math.abs(opts.semitones) > 12) return fail('ずらす半音の数は-12〜12の整数にしてください', '例: 半音上げるなら 1、全音なら 2');
+  const next = clone(song);
+  const nextId = createIdFactory(collectIds(next));
+  const cur = source.key ?? next.key;
+  const newPc = mod12((pitchClassOf(cur.tonic) ?? 0) + opts.semitones);
+  const sharpKey = /** @type {Key} */ ({ tonic: pcName(newPc, false), mode: cur.mode });
+  const newKey = keyPrefersFlat(sharpKey) ? /** @type {Key} */ ({ tonic: pcName(newPc, true), mode: cur.mode }) : sharpKey;
+  /** @type {Section} */
+  const copy = {
+    ...clone(source),
+    id: nextId('s'),
+    name: (opts.name ?? `${source.name}(転調)`).trim() || source.name,
+    parts: Object.fromEntries(Object.entries(source.parts).map(([tid, notes]) => [tid, notes.map((n) => ({ ...clone(n), id: nextId('n') }))])),
+  };
+  delete copy.key;
+  shiftSection(next, copy, opts.semitones, newKey);
+  next.sections.push(copy);
+  const at = clampIndex(opts.index ?? next.arrangement.length, next.arrangement.length);
+  next.arrangement.splice(at, 0, { id: nextId('a'), sectionId: copy.id, lyrics: [] });
+  return finish(next, { strictSectionIds: [copy.id] });
 }
 
 // ---- 接続口の設定 ----

@@ -8,6 +8,8 @@
  * @property {number} duration 秒
  * @property {number} pitch MIDIの音番号
  * @property {number} velocity 1〜127
+ * @property {number} [gain] 音量の倍率(省略は1)
+ * @property {string} [instrument] パートの楽器の代わりに使う楽器(この場所だけの設定)
  */
 
 /**

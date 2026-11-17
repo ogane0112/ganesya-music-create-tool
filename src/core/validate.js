@@ -1,6 +1,7 @@
 // 曲データの検査:形の正しさ、キーから外れた音の検出。知らない項目は消さずに残す。
 import { FORMAT_VERSION } from './types.js';
 import { isInstrument, isMood, isSectionKind, isTrackRole, TEMPO_MAX, TEMPO_MIN } from './catalog.js';
+import { STYLE_NAMES } from './style-names.js';
 import { chordPitchClasses, isInKey, isValidTonic, mod12, parseChord, pitchNameDoremi, ticksPerBar } from './theory.js';
 
 /** @typedef {import('./types.js').Song} Song */
@@ -158,6 +159,7 @@ export function checkShape(song) {
       if (!isStr(a.id) || !a.id) bad(`${p}.id`, '並び順の項目のIDがありません');
       else if (itemIds.has(a.id)) bad(`${p}.id`, `並び順の項目のIDが重複しています: ${a.id}`);
       else itemIds.add(a.id);
+      checkItemSettings(a, p, trackIds, bad);
       if (!isStr(a.sectionId) || !sectionIds.has(a.sectionId)) bad(`${p}.sectionId`, `存在しない部品を指しています: ${String(a.sectionId)}`);
       if (!Array.isArray(a.lyrics)) bad(`${p}.lyrics`, 'lyrics は配列である必要があります');
       else {
@@ -174,6 +176,55 @@ export function checkShape(song) {
   if (!isObj(song.extensions)) bad('extensions', 'extensions はオブジェクトである必要があります');
 
   return problems;
+}
+
+/**
+ * 並びの1か所ごとの設定(mix・styles・instruments・fx)を調べる
+ * @param {Record<string, any>} a
+ * @param {string} p
+ * @param {Set<string>} trackIds
+ * @param {(path: string, message: string) => void} bad
+ */
+function checkItemSettings(a, p, trackIds, bad) {
+  if (a.mix !== undefined) {
+    if (!isObj(a.mix)) bad(`${p}.mix`, 'mix はオブジェクトである必要があります');
+    else {
+      for (const [tid, m] of Object.entries(a.mix)) {
+        if (!trackIds.has(tid)) bad(`${p}.mix.${tid}`, `知らないパートです: ${tid}`);
+        if (!isObj(m)) bad(`${p}.mix.${tid}`, '{ muted, volume } の形である必要があります');
+        else {
+          if (m.muted !== undefined && typeof m.muted !== 'boolean') bad(`${p}.mix.${tid}.muted`, 'muted は true か false である必要があります');
+          if (m.volume !== undefined && !(typeof m.volume === 'number' && m.volume >= 0 && m.volume <= 1)) bad(`${p}.mix.${tid}.volume`, '音量は0〜1である必要があります');
+        }
+      }
+    }
+  }
+  if (a.styles !== undefined) {
+    if (!isObj(a.styles)) bad(`${p}.styles`, 'styles はオブジェクトである必要があります');
+    else {
+      for (const [k, v] of Object.entries(a.styles)) {
+        const names = /** @type {Record<string, string[]>} */ (STYLE_NAMES)[k];
+        if (!names) bad(`${p}.styles.${k}`, `知らない弾き方の項目です: ${k}`);
+        else if (!names.includes(/** @type {string} */ (v))) bad(`${p}.styles.${k}`, `${k} は ${names.join(' / ')} から選びます`);
+      }
+    }
+  }
+  if (a.instruments !== undefined) {
+    if (!isObj(a.instruments)) bad(`${p}.instruments`, 'instruments はオブジェクトである必要があります');
+    else {
+      for (const [tid, inst] of Object.entries(a.instruments)) {
+        if (!trackIds.has(tid)) bad(`${p}.instruments.${tid}`, `知らないパートです: ${tid}`);
+        if (!isInstrument(inst)) bad(`${p}.instruments.${tid}`, `知らない楽器です: ${String(inst)}`);
+      }
+    }
+  }
+  if (a.fx !== undefined) {
+    if (!isObj(a.fx)) bad(`${p}.fx`, 'fx はオブジェクトである必要があります');
+    else {
+      for (const k of ['crash', 'fill', 'riser']) if (a.fx[k] !== undefined && typeof a.fx[k] !== 'boolean') bad(`${p}.fx.${k}`, `${k} は true か false である必要があります`);
+      if (a.fx.break !== undefined && !(typeof a.fx.break === 'number' && a.fx.break >= 0 && a.fx.break <= 8)) bad(`${p}.fx.break`, 'break は0〜8(拍)である必要があります');
+    }
+  }
 }
 
 /**

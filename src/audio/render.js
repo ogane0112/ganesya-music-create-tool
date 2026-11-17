@@ -37,6 +37,7 @@ export const DUCK = { depth: 0.25, hold: 0.03, recover: 0.07 };
  * @property {GainNode} reverbSend 長い残響への送り
  * @property {string} instrument
  * @property {boolean} sidechain
+ * @property {Map<string, import('./instruments/index.js').InstrumentVoice>} extra この場所だけ別の楽器にした時の楽器
  * @property {boolean} isDrums
  */
 
@@ -237,6 +238,7 @@ export function createMix(ctx, song, destination, opts = {}) {
       instrument: t.instrument,
       sidechain: !!t.sidechain,
       isDrums: t.role === 'drums',
+      extra: new Map(),
     });
   }
   return { ctx, master, tracks };
@@ -252,7 +254,13 @@ export function createMix(ctx, song, destination, opts = {}) {
 export function playNote(mix, trackId, note) {
   const track = mix.tracks.get(trackId);
   if (!track) return;
-  track.voice.play(note);
+  let voice = track.voice;
+  if (note.instrument && note.instrument !== track.instrument) {
+    let extra = track.extra.get(note.instrument);
+    if (!extra) track.extra.set(note.instrument, (extra = cachedVoice(note.instrument, mix.ctx, track.duck)));
+    voice = extra;
+  }
+  voice.play(note);
   if (track.isDrums && KICKS.has(note.pitch)) {
     for (const t of mix.tracks.values()) {
       if (!t.sidechain) continue;

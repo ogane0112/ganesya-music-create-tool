@@ -87,6 +87,16 @@ function renderBar(pattern, barStart, rng, scale = 1) {
 }
 
 /**
+ * 1小節ぶんのドラムのフィル(部品の終わりの「おかず」)
+ * @param {number} barStart 小節の頭(ティック)
+ * @param {Rng} rng
+ * @returns {NoteData[]}
+ */
+export function drumFill(barStart, rng) {
+  return renderBar(rng.pick(FILLS), barStart, rng, 1.05);
+}
+
+/**
  * @typedef {object} DrumOptions
  * @property {'verse' | 'prechorus' | 'chorus'} kind
  * @property {number} bars

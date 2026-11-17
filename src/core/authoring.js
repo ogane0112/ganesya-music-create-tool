@@ -2,7 +2,7 @@
 // コード進行とメロディは、かんたん記法の文字でも、曲データの形でも渡せる。
 import { isMood, isSectionKind, TEMPO_MAX, TEMPO_MIN } from './catalog.js';
 import { appendSection, composeSection, createSkeleton, resolveMood, tracksByRole } from './composer/index.js';
-import { DRUM_PATTERNS } from './composer/drums.js';
+import { STYLE_NAMES } from './style-names.js';
 import { NotationError, parseChords, parseMelody } from './notation.js';
 import { fail } from './operations.js';
 import { createRng, randomSeed } from './random.js';
@@ -14,19 +14,14 @@ import { validateSong } from './validate.js';
 /** @typedef {import('./types.js').Key} Key */
 /** @typedef {Omit<import('./types.js').Note, 'id'>} NoteData */
 
-/** 伴奏の弾き方として選べる名前 */
-export const STYLE_NAMES = {
-  chordStyle: ['arpeggio', 'strum', 'palm', 'power', 'syncopated', 'quarter', 'sustain', 'pluck16', 'offbeat-stab', 'pump'],
-  bassStyle: ['whole', 'half', 'eighth', 'octave', 'syncopated', 'offbeat', 'rolling'],
-  drumStyle: Object.keys(DRUM_PATTERNS),
-  leadStyle: ['riff', 'arp', 'none'],
-};
+export { STYLE_NAMES };
 
 /**
  * @typedef {object} SectionSpec
  * @property {string} name
  * @property {import('./types.js').SectionKind} kind
  * @property {number} bars
+ * @property {Key} [key] この部品だけのキー(転調)。メロディとコードは、このキーで書く。省略は曲のキー
  * @property {string | Chord[]} [chords] 省略するとルールが作る
  * @property {string | NoteData[]} [melody] 省略するとルールが作る
  * @property {Partial<Record<'chordStyle' | 'bassStyle' | 'drumStyle' | 'leadStyle', string>>} [styles]
@@ -41,7 +36,7 @@ export const resolveNotes = (x) => (typeof x === 'string' ? parseMelody(x) : x?.
  * 部品1つ分の中身を作る(書かれたコード進行・メロディを使い、残りはルールで作る)
  * 書き方が読めない時は NotationError、中身がおかしい時は Error を投げる
  * @param {Song} song パートとキー・雰囲気を見る
- * @param {{ kind: import('./types.js').SectionKind, bars: number, chords?: string | Chord[], melody?: string | NoteData[], styles?: SectionSpec['styles'], name?: string }} spec
+ * @param {{ kind: import('./types.js').SectionKind, bars: number, key?: Key, chords?: string | Chord[], melody?: string | NoteData[], styles?: SectionSpec['styles'], name?: string }} spec
  * @param {{ seed?: number, only?: import('./composer/index.js').Part[] }} [opts]
  */
 export function authorSection(song, spec, opts = {}) {
@@ -60,7 +55,7 @@ export function authorSection(song, spec, opts = {}) {
     if (!names) throw new Error(`知らない弾き方の項目です: ${k}`);
     if (!names.includes(/** @type {string} */ (v))) throw new Error(`${k} は ${names.join(' / ')} から選びます(渡された値: ${v})`);
   }
-  const key = song.key;
+  const key = spec.key ?? song.key;
   return composeSection(
     { key, mood: resolveMood(song.mood, key.mode), kind: spec.kind, bars: spec.bars, timeSignature: song.timeSignature, roles: tracksByRole(song.tracks) },
     createRng(opts.seed ?? randomSeed()),
@@ -86,7 +81,7 @@ export function createAuthoredSong(input) {
   try {
     for (const spec of input.sections) {
       const content = authorSection(song, spec, { seed: rng.int(1, 0x7ffffff) });
-      appendSection(song, { name: String(spec.name ?? '部品'), kind: spec.kind, bars: spec.bars }, content);
+      appendSection(song, { name: String(spec.name ?? '部品'), kind: spec.kind, bars: spec.bars, key: spec.key }, content);
     }
   } catch (e) {
     return fail(e instanceof Error ? e.message : String(e), e instanceof NotationError ? 'かんたん記法の書き方を確かめてください' : '部品の内容を直してください', 'invalid_song');

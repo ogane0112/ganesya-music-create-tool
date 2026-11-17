@@ -8,13 +8,14 @@ import { generateAlternatives, ALTERNATIVE_TARGETS } from '../core/alternatives.
 import { INSTRUMENTS, MOODS, TEMPO_PRESETS } from '../core/catalog.js';
 import { History } from '../core/history.js';
 import {
-  addArrangementItem, createDraftSong, moveArrangementItem, removeArrangementItem, replaceSection, setConnectorSettings, setLyrics,
-  updateSongSettings,
+  addArrangementItem, addSectionCopy, createDraftSong, moveArrangementItem, removeArrangementItem, replaceSection, setConnectorSettings, setItem,
+  setLyrics, updateSongSettings,
 } from '../core/operations.js';
 import { assignLyrics, lyricLines } from '../core/lyrics.js';
 import { listSingers, singerOf, singItem, voicevoxAvailable } from '../connectors/voicevox.js';
 import { hasVocal, setVocal } from '../audio/vocals.js';
 import { roleDefaults } from '../audio/render.js';
+import { STYLE_NAMES } from '../core/style-names.js';
 import { buildTimeline } from '../core/timeline.js';
 import { ticksToSeconds } from '../core/theory.js';
 import { validateSong } from '../core/validate.js';
@@ -99,6 +100,7 @@ export function mountApp(root) {
   /** @type {Map<string, string>} 書きかけの歌詞(並び順の項目ごと) */
   const lyricDrafts = new Map();
   let lyricsOpen = false;
+  let itemOpen = false; // 「この場所だけの設定」を開いているか
   /** @type {Set<string>} 「くわしく」を開いているパート */
   const mixOpen = new Set();
   /** @type {string | null} 歌わせている途中の項目 */
@@ -741,9 +743,70 @@ export function mountApp(root) {
         h('button', { type: 'button', class: 'ghost', disabled: index === 0, onClick: () => apply(moveArrangementItem(song, item.id, index - 1), { label: `${section.name}を前へ`, message: `${section.name}を前へ動かしました` }) }, '← 前へ'),
         h('button', { type: 'button', class: 'ghost', disabled: index === song.arrangement.length - 1, onClick: () => apply(moveArrangementItem(song, item.id, index + 1), { label: `${section.name}を後ろへ`, message: `${section.name}を後ろへ動かしました` }) }, '後ろへ →'),
         h('button', { type: 'button', class: 'ghost', onClick: () => apply(addArrangementItem(song, section.id, index + 1), { label: `${section.name}をもう一度使う`, message: `${section.name}をもう一度入れました` }) }, '＋ もう一度使う'),
+        h('button', { type: 'button', class: 'ghost', title: '半音高くした同じ部品を、この次に入れます(大サビで盛り上げる時に)', onClick: () => apply(addSectionCopy(song, section.id, { semitones: 1, index: index + 1 }), { label: `${section.name}を半音上げて使う`, message: `${section.name}を半音上げて入れました(転調)` }) }, '＋ 半音上げて使う'),
+        h('button', { type: 'button', class: 'ghost', title: '全音(半音2つ)高くした同じ部品を、この次に入れます', onClick: () => apply(addSectionCopy(song, section.id, { semitones: 2, index: index + 1 }), { label: `${section.name}を全音上げて使う`, message: `${section.name}を全音上げて入れました(転調)` }) }, '＋ 全音上げて使う'),
         h('button', { type: 'button', class: 'ghost danger', disabled: song.arrangement.length === 1, onClick: () => apply(removeArrangementItem(song, item.id), { label: `${section.name}を外す`, message: `${section.name}を外しました` }) }, '外す'),
       ),
+      itemSettings(song, item, section.name),
       lyricsPanel(song, item, section.name),
+    );
+  }
+
+  const STYLE_LABELS = /** @type {Record<string, string>} */ ({
+    arpeggio: 'アルペジオ', strum: 'かき鳴らし', palm: 'パームミュート', power: 'パワーコード', syncopated: '裏拍', quarter: '4分刻み', sustain: 'のばす', pluck16: '16分の刻み', 'offbeat-stab': '裏打ち', pump: 'うねる',
+    whole: '全音符', half: '2分', eighth: '8分', octave: 'オクターブ', offbeat: '裏打ち', rolling: '転がる',
+    light: '控えめ', 'half-time': 'ハーフタイム', 'eight-beat': '8ビート', sixteen: '16ビート', 'four-floor': '四つ打ち', ride: 'ライド', edm: 'EDM', 'rock-verse': 'ロック(控えめ)', 'rock-open': 'ロック(開放)',
+    riff: 'リフ', arp: 'アルペジオ', none: 'なし',
+  });
+
+  /**
+   * この場所だけの設定:パートの消音、つなぎの演出、弾き方(メロディとコードは部品のまま)
+   * @param {Song} song
+   * @param {import('../core/types.js').ArrangementItem} item
+   * @param {string} name
+   */
+  function itemSettings(song, item, name) {
+    /** @param {import('../core/operations.js').ItemPatch} patch @param {string} label */
+    const set = (patch, label) => apply(setItem(song, item.id, patch), { label: `${name}:${label}`, message: `${name}のこの場所を変えました` });
+    const fx = item.fx ?? {};
+    const changed = !!(item.mix || item.styles || item.instruments || item.fx);
+    return h('details', { class: 'item-settings', open: itemOpen, onToggle: (/** @type {Event} */ e) => { itemOpen = /** @type {HTMLDetailsElement} */ (e.target).open; } },
+      h('summary', null, '🎚 この場所だけの設定', changed ? h('span', { class: 'tag' }, '変更あり') : null),
+      h('p', { class: 'muted small' }, '同じ部品を何回か使っている時、この場所だけ変えられます(メロディとコードはそのまま)。'),
+      h('div', { class: 'item-group' },
+        h('strong', null, 'この場所で鳴らさない楽器'),
+        h('div', { class: 'chips' }, song.tracks.map((t) => {
+          const muted = !!item.mix?.[t.id]?.muted;
+          return h('button', {
+            type: 'button', class: `chip${muted ? ' off' : ''}`, 'aria-pressed': String(muted),
+            onClick: () => set({ mix: { [t.id]: { muted: !muted } } }, `${t.name ?? t.id}を${muted ? '鳴らす' : '抜く'}`),
+          }, `${ROLE_ICONS[t.role] ?? '🎵'} ${t.name ?? t.id}${muted ? '(抜く)' : ''}`);
+        })),
+      ),
+      h('div', { class: 'item-group' },
+        h('strong', null, 'つなぎの演出'),
+        h('div', { class: 'chips' },
+          ...[['crash', '頭にシンバル'], ['fill', '最後にフィル'], ['riser', '上がっていく音']].map(([k, label]) => h('button', {
+            type: 'button', class: `chip${/** @type {any} */ (fx)[k] ? ' on' : ''}`, 'aria-pressed': String(!!(/** @type {any} */ (fx)[k])),
+            onClick: () => set({ fx: { [k]: !(/** @type {any} */ (fx)[k]) } }, label),
+          }, label)),
+          h('label', { class: 'chip-select' }, '終わりの無音',
+            h('select', { 'aria-label': '終わりを無音にする長さ', onChange: (/** @type {Event} */ e) => set({ fx: { break: Number(/** @type {HTMLSelectElement} */ (e.target).value) } }, '終わりの無音') },
+              [[0, 'なし'], [1, '1拍'], [2, '2拍'], [4, '4拍']].map(([v, l]) => h('option', { value: v, selected: (fx.break ?? 0) === v }, l))),
+          ),
+        ),
+      ),
+      h('div', { class: 'item-group' },
+        h('strong', null, '弾き方(この場所だけ)'),
+        h('div', { class: 'style-grid' }, ...[['chordStyle', '和音'], ['bassStyle', 'ベース'], ['drumStyle', 'ドラム']].map(([k, label]) => h('label', null, label,
+          h('select', {
+            'aria-label': `${label}の弾き方`,
+            onChange: (/** @type {Event} */ e) => { const v = /** @type {HTMLSelectElement} */ (e.target).value; set({ styles: { [k]: v || null } }, `${label}の弾き方`); },
+          }, h('option', { value: '', selected: !item.styles?.[/** @type {'chordStyle'} */ (k)] }, '標準'),
+          ...(/** @type {Record<string, string[]>} */ (STYLE_NAMES)[k]).map((s) => h('option', { value: s, selected: item.styles?.[/** @type {'chordStyle'} */ (k)] === s }, STYLE_LABELS[s] ?? s))),
+        ))),
+      ),
+      changed && h('button', { type: 'button', class: 'ghost danger', onClick: () => set({ mix: null, styles: null, instruments: null, fx: null }, '元に戻す') }, 'この場所の設定をすべて元に戻す'),
     );
   }
 

@@ -133,6 +133,8 @@ export function perform(song, timeline) {
  * @property {number} duration 秒
  * @property {number} pitch
  * @property {number} velocity
+ * @property {number} [gain] この場所だけの音量の倍率
+ * @property {string} [instrument] この場所だけの楽器
  */
 
 /**
@@ -155,6 +157,8 @@ export function performSong(song, opts = {}) {
       duration: ticksToSeconds(ev.length, song.tempo),
       pitch: ev.pitch,
       velocity: p ? Math.max(1, Math.min(127, Math.round(ev.velocity + (p.velocity - ev.velocity) * h))) : ev.velocity,
+      ...(ev.gain !== undefined ? { gain: ev.gain } : {}),
+      ...(ev.instrument ? { instrument: ev.instrument } : {}),
     };
   });
   notes.sort((a, b) => a.time - b.time);

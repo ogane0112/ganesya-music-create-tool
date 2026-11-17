@@ -4,7 +4,7 @@ import { authorSection, createAuthoredSong, resolveNotes } from '../src/core/aut
 import { formatChords, formatMelody, NotationError } from '../src/core/notation.js';
 import {
   addArrangementItem, addSection, createDraftSong, moveArrangementItem, registerSong, removeArrangementItem, renameSection,
-  replaceSection, setLyrics, updateSongSettings,
+  replaceSection, setItem, setLyrics, setSectionKey, addSectionCopy, updateSongSettings,
 } from '../src/core/operations.js';
 import { lyricLines } from '../src/core/lyrics.js';
 import { keyPrefersFlat, pitchName, ticksPerBar } from '../src/core/theory.js';
@@ -93,12 +93,14 @@ export function summarize(id, song, opts = {}) {
     arrangement: song.arrangement.map((a, index) => ({
       index, itemId: a.id, sectionId: a.sectionId, name: song.sections.find((s) => s.id === a.sectionId)?.name,
       lyrics: lyricLines(song, a.id).map((l) => ({ notes: l.notes, kana: l.kana })),
+      ...(a.mix ? { mix: a.mix } : {}), ...(a.styles ? { styles: a.styles } : {}), ...(a.instruments ? { instruments: a.instruments } : {}), ...(a.fx ? { fx: a.fx } : {}),
     })),
     sections: song.sections.map((s) => ({
       sectionId: s.id,
       name: s.name,
       kind: s.kind,
       bars: s.bars,
+      ...(s.key ? { key: s.key } : {}),
       chords: formatChords(s.chords),
       melody: melodyTrack ? formatMelody(s.parts[melodyTrack] ?? [], { flat, barTicks, totalTicks: s.bars * barTicks, velocities: opts.velocities }) : '',
     })),
@@ -247,7 +249,7 @@ export const TOOLS = [
   },
   {
     name: 'replace_section',
-    description: '部品1つを書き換えて保存する。melody だけ → メロディ(と合間の彩り)だけ変わる。chords → コード進行が変わり伴奏も作り直す(メロディはそのまま)。styles だけ → 伴奏の弾き方だけ変わる。parts であるパートの音符を直接書ける。alternative で generate_alternatives の案を採用できる。',
+    description: '部品1つを書き換えて保存する。key を渡すと、その部品のキーを変える(転調。コードと音符がその部品だけ移る)。melody だけ → メロディ(と合間の彩り)だけ変わる。chords → コード進行が変わり伴奏も作り直す(メロディはそのまま)。styles だけ → 伴奏の弾き方だけ変わる。parts であるパートの音符を直接書ける。alternative で generate_alternatives の案を採用できる。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -256,6 +258,7 @@ export const TOOLS = [
         chords: { type: 'string', description: 'コード進行(かんたん記法)' },
         melody: { type: 'string', description: 'メロディ(かんたん記法)' },
         bars: { type: 'integer', description: '小節数を変える時だけ。変えると伴奏はすべて作り直す' },
+        key: KEY_SCHEMA,
         styles: STYLES_SCHEMA,
         parts: { type: 'object', description: 'パートID(t2 など)ごとに音符を直接書く。値はかんたん記法の文字か、{start,length,pitch,velocity} の配列(1拍=480)。ドラム(t4)は pitch が打楽器の番号(36=バスドラム、38=スネア、42=ハイハット、46=開いたハイハット、49=シンバル、39=手拍子)' },
         alternative: { type: 'object', description: 'generate_alternatives の案を採用する', properties: { target: { type: 'string' }, seed: { type: 'integer' }, index: { type: 'integer' } }, required: ['target', 'seed', 'index'] },
@@ -300,26 +303,34 @@ export const TOOLS = [
           /** @type {any} */ (replacement.parts)[trackId] = authoring(() => resolveNotes(/** @type {any} */ (value)) ?? []);
         }
       }
-      if (!replacement.chords && Object.keys(replacement.parts ?? {}).length === 0) {
+      if (!replacement.chords && Object.keys(replacement.parts ?? {}).length === 0 && !args.key) {
         throw new ToolError({ code: 'invalid_arguments', message: '書き換える内容がありません', hint: 'melody・chords・styles・parts・alternative のどれかを渡してください' });
       }
-      return save(ctx, args.songId, unwrap(replaceSection(song, section.id, replacement), song), args.revision);
+      let result = unwrap(replaceSection(song, section.id, replacement), song);
+      // key を渡すと、その部品のキーを変える(部品のコードと音符がそのキーへ移る。同じ部品を使う場所は全部変わる)
+      if (args.key) result = unwrap(setSectionKey(result, section.id, args.key), result);
+      return save(ctx, args.songId, result, args.revision);
     },
   },
   {
     name: 'update_arrangement',
-    description: '部品の並びを変えて保存する。action: add(既にある部品をもう一度並べる)/ add_section(新しい部品を書いて足す)/ remove(並びから外す)/ move(並べ替え)/ rename(名前・種類を変える)。',
+    description: '部品の並びを変えて保存する。action: add(既にある部品をもう一度並べる)/ add_section(新しい部品を書いて足す)/ add_copy(部品を半音ずらして複製して並べる = 転調。大サビで上げる時など)/ remove(並びから外す)/ move(並べ替え)/ rename(名前・種類を変える)/ set_item(並びの1か所だけの、消音・音量・弾き方・楽器・つなぎの演出)。',
     inputSchema: {
       type: 'object',
       properties: {
         ...WRITE_PROPS,
-        action: { type: 'string', enum: ['add', 'add_section', 'remove', 'move', 'rename'] },
+        action: { type: 'string', enum: ['add', 'add_section', 'add_copy', 'remove', 'move', 'rename', 'set_item'] },
         sectionId: { type: 'string', description: 'add / rename で使う' },
         itemId: { type: 'string', description: 'remove / move で使う(get_song の arrangement の itemId)' },
         index: { type: 'integer', description: 'add / add_section で入れる位置、move で動かした後の位置(0が先頭。省略で末尾)' },
         section: SECTION_SPEC_SCHEMA,
-        name: { type: 'string' },
+        name: { type: 'string', description: 'rename の新しい名前、add_copy の複製の名前' },
         kind: { type: 'string' },
+        semitones: { type: 'integer', description: 'add_copy でずらす半音の数。上げるなら正(半音上げ = 1、全音上げ = 2)、下げるなら負' },
+        mix: { type: 'object', description: 'set_item:パート(t4 など)ごとに { muted: true } か { volume: 0〜1 }。null でそのパートを元に戻す。例 {"t4":{"muted":true}} で、この場所だけドラムを抜く' },
+        styles: { type: 'object', description: 'set_item:この場所だけの伴奏の弾き方(chordStyle・bassStyle・drumStyle・leadStyle)。指定したパートだけ作り直し、メロディとコードは部品のまま。null の項目は元に戻す' },
+        instruments: { type: 'object', description: 'set_item:この場所だけのパートの楽器。例 {"t2":"piano"}。null で元に戻す' },
+        fx: { type: 'object', description: 'set_item:つなぎの演出 { crash: 頭にシンバル, fill: 最後の1小節をフィル, riser: 最後の2小節に上がっていく効果音, break: 終わりの何拍を無音にするか(0〜8) }' },
       },
       required: ['songId', 'revision', 'action'],
     },
@@ -332,6 +343,8 @@ export const TOOLS = [
         case 'remove': r = removeArrangementItem(song, args.itemId); break;
         case 'move': r = moveArrangementItem(song, args.itemId, args.index ?? song.arrangement.length); break;
         case 'rename': r = renameSection(song, args.sectionId, { name: args.name, kind: args.kind }); break;
+        case 'add_copy': r = addSectionCopy(song, args.sectionId, { semitones: args.semitones, name: args.name, index: args.index }); break;
+        case 'set_item': r = setItem(song, args.itemId, { mix: args.mix, styles: args.styles, instruments: args.instruments, fx: args.fx }); break;
         case 'add_section': {
           const spec = args.section;
           if (!spec) throw new ToolError({ code: 'invalid_arguments', message: 'section がありません', hint: 'name・kind・bars・chords・melody を書いて渡してください' });
@@ -340,7 +353,7 @@ export const TOOLS = [
           break;
         }
         default:
-          throw new ToolError({ code: 'invalid_arguments', message: `知らない action です: ${args.action}`, hint: 'add / add_section / remove / move / rename から選んでください' });
+          throw new ToolError({ code: 'invalid_arguments', message: `知らない action です: ${args.action}`, hint: 'add / add_section / add_copy / remove / move / rename / set_item から選んでください' });
       }
       return save(ctx, args.songId, unwrap(r, song), args.revision);
     },

@@ -77,7 +77,10 @@ export function withVocals(song, performed, sampleRate) {
     const buffer = v?.decoded.get(sampleRate);
     if (!v || !buffer) continue;
     sungItems.add(item.itemId);
-    clips.push({ time: (item.startTick / 480) * (60 / song.tempo) - v.leadSeconds, buffer, trackId: track.id, gain: vocalGain(song) });
+    const mix = song.arrangement.find((a) => a.id === item.itemId)?.mix?.[track.id];
+    if (mix?.muted) continue; // この場所だけ歌を消す
+    const factor = mix?.volume === undefined ? 1 : track.volume > 0.02 ? Math.min(2.5, mix.volume / track.volume) : mix.volume;
+    clips.push({ time: (item.startTick / 480) * (60 / song.tempo) - v.leadSeconds, buffer, trackId: track.id, gain: vocalGain(song) * factor });
   }
   return { notes: performed.notes.filter((n) => !(n.trackId === track.id && sungItems.has(n.itemId))), clips };
 }

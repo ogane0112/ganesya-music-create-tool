@@ -38,7 +38,7 @@ export async function renderSong(song, opts = {}) {
   const instrumentOf = new Map(song.tracks.map((t) => [t.id, t.instrument]));
   const drumTracks = new Set(song.tracks.filter((t) => t.role === 'drums').map((t) => t.id));
   for (const ev of notes) {
-    const instrument = instrumentOf.get(ev.trackId);
+    const instrument = ev.instrument ?? instrumentOf.get(ev.trackId);
     if (!instrument) continue;
     const time = LEAD_SECONDS + ev.time;
     if (drumTracks.has(ev.trackId) && KICKS.has(ev.pitch)) kicks.push(time);
@@ -53,7 +53,8 @@ export async function renderSong(song, opts = {}) {
     for (let c = 0; c < 2; c++) {
       const src = hit.buffer.getChannelData(c);
       const dst = stem[c];
-      for (let i = 0; i < n; i++) dst[at + i] += src[i] * hit.gain;
+      const g = hit.gain * (ev.gain ?? 1);
+      for (let i = 0; i < n; i++) dst[at + i] += src[i] * g;
     }
   }
 
