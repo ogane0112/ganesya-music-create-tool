@@ -16,7 +16,12 @@ import { formatGuide } from './guide.js';
 
 /** @typedef {import('../src/core/types.js').Song} Song */
 /** @typedef {import('../src/core/types.js').AppError} AppError */
-/** @typedef {{ store: import('./db.js').SongStore }} ToolContext */
+/**
+ * @typedef {{ status: 'done', url: string, fileName: string, bytes: number, seconds: number, expiresMinutes: number, timing?: Record<string, number> }} ExportDone
+ * @typedef {{ status: 'running', jobId?: string, waitedSeconds?: number }} ExportRunning
+ * @typedef {{ status: 'failed', message: string }} ExportFailed
+ * @typedef {{ store: import('./db.js').SongStore, exportAudio?: (song: Song, opts: { itemIds?: string[] }) => Promise<ExportDone | ExportRunning>, exportStatus?: (jobId: string) => Promise<ExportDone | ExportRunning | ExportFailed | null> }} ToolContext
+ */
 
 /** 道具の中の失敗(AIに理由と対処を返す) */
 export class ToolError extends Error {
@@ -400,6 +405,47 @@ export const TOOLS = [
       const song = await loadForWrite(ctx, args);
       const { title, artist, tempo, key, tracks, humanize } = args;
       return save(ctx, args.songId, unwrap(updateSongSettings(song, { title, artist, tempo, key, tracks, humanize }), song), args.revision);
+    },
+  },
+  {
+    name: 'export_audio',
+    description: '曲を音声ファイル(WAV)にして、ダウンロードできるURLを返す。音は画面の書き出しと同じ(録音の楽器・残響・演奏の揺らぎ・音量の仕上げ込み)。サーバーのブラウザで作るので、1曲で20秒〜1分ほどかかる。25秒以内に終われば status: "done" とURLを返す。終わらなければ status: "running" と jobId を返すので、少し待って get_export に jobId を渡して受け取る(利用者には「作っています」と伝えて待てばよい)。URLは1時間だけ使える(知っている人は誰でも受け取れるので、人に見せない)。歌声(VOICEVOX)は利用者のPCで作るので入らない。楽器の演奏だけ。一部だけ書き出すなら itemIds を渡す。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        songId: { type: 'string' },
+        itemIds: { type: 'array', items: { type: 'string' }, description: '一部の場所だけ書き出す時の、get_song の arrangement の itemId(省略で曲全体)' },
+      },
+      required: ['songId'],
+    },
+    run: async (args, ctx) => {
+      if (!ctx.exportAudio) throw new ToolError({ code: 'unavailable', message: '音声の書き出しは、この環境では使えません', hint: 'アプリの画面の「音声ファイル(WAV)で保存」を使ってください' });
+      const song = await ctx.store.get(args.songId);
+      if (args.itemIds && !args.itemIds.every((/** @type {string} */ id) => song.arrangement.some((a) => a.id === id))) {
+        throw new ToolError({ code: 'not_found', message: '知らない itemId があります', hint: 'get_song の arrangement の itemId から選んでください' });
+      }
+      try {
+        const r = await ctx.exportAudio(song, { itemIds: args.itemIds });
+        return r.status === 'done'
+          ? { ...r, note: '歌声は入っていません(楽器の演奏だけ)。URLは1時間で切れます' }
+          : { ...r, note: 'まだ作っています。10〜20秒ほど待ってから、get_export に jobId を渡してください' };
+      } catch (e) {
+        throw new ToolError({ code: 'export_failed', message: e instanceof Error ? e.message : '音声を作れませんでした', hint: '1分ほど待ってからもう一度試してください(短い時間に何度も書き出すと、サーバーのブラウザの起動回数の上限に当たります)。続く場合は、画面の「音声ファイル(WAV)で保存」を使ってください' });
+      }
+    },
+  },
+  {
+    name: 'get_export',
+    description: 'export_audio が status: "running" を返した時に、jobId を渡して、書き出しの結果(ダウンロードできるURL)を受け取る。まだなら status: "running" のまま。',
+    inputSchema: { type: 'object', properties: { jobId: { type: 'string' } }, required: ['jobId'] },
+    run: async (args, ctx) => {
+      if (!ctx.exportStatus) throw new ToolError({ code: 'unavailable', message: '音声の書き出しは、この環境では使えません', hint: 'アプリの画面の「音声ファイル(WAV)で保存」を使ってください' });
+      const r = await ctx.exportStatus(String(args.jobId ?? ''));
+      if (!r) throw new ToolError({ code: 'not_found', message: 'その書き出し(jobId)は見つかりません', hint: 'export_audio が返した jobId をそのまま渡してください' });
+      if (r.status === 'failed') throw new ToolError({ code: 'export_failed', message: r.message, hint: 'もう一度 export_audio から始めてください。続く場合は、画面の「音声ファイル(WAV)で保存」を使ってください' });
+      return r.status === 'done'
+        ? { ...r, note: '歌声は入っていません(楽器の演奏だけ)。URLは1時間で切れます' }
+        : { ...r, note: 'まだ作っています。10秒ほど待って、もう一度 get_export を呼んでください' };
     },
   },
   {

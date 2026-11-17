@@ -12,6 +12,7 @@ import { authStore } from './auth-store.js';
 import { HttpError, songStore } from './db.js';
 import { ASSETS } from './generated-assets.js';
 import { handleMcp } from './mcp.js';
+import { downloadResponse, exportStatus, renderAudio, saveDone, savePart } from './render.js';
 import { handleOAuth, ownerFromBearer, unauthorizedMcp } from './oauth.js';
 import { oauthStore } from './oauth-store.js';
 
@@ -61,11 +62,32 @@ function serveAsset(path) {
 export default {
   /**
    * @param {Request} request
-   * @param {{ DB: any, SOUNDS: any, ACCESS_KEY?: string }} env
+   * @param {{ DB: any, SOUNDS: any, BROWSER?: any, RENDER_SECRET?: string, ACCESS_KEY?: string }} env
    */
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
+      // 音声の書き出し:ページからの受け取りと、できたファイルの受け渡し(どちらも署名つきの token で守る)
+      const part = /^\/render\/part\/([^/]+)\/(\d+)$/.exec(url.pathname);
+      if (part && request.method === 'PUT') {
+        const ok = await savePart(env, decodeURIComponent(part[1]), Number(part[2]), await request.arrayBuffer());
+        return new Response(null, { status: ok ? 204 : 403 });
+      }
+      const done = /^\/render\/done\/([^/]+)$/.exec(url.pathname);
+      if (done && request.method === 'PUT') {
+        /** @type {any} */
+        let body = null;
+        try {
+          body = await request.json();
+        } catch {
+          // 下で断る
+        }
+        return new Response(null, { status: (await saveDone(env, decodeURIComponent(done[1]), body)) ? 204 : 403 });
+      }
+      const dl = /^\/download\/([^/]+)\/[^/]+$/.exec(url.pathname);
+      if (dl && request.method === 'GET') {
+        return (await downloadResponse(env, decodeURIComponent(dl[1]))) ?? new Response('このファイルは期限切れか、見つかりません', { status: 404 });
+      }
       const auth = authStore(env.DB);
       if (url.pathname.startsWith('/api/auth/')) {
         return await handleAuth(request, url, url.pathname.slice('/api/auth/'.length), auth, {
@@ -92,7 +114,11 @@ export default {
         // URL に合言葉を入れる以前の方式は廃止した。許可証(OAuth)だけを受け付ける
         const owner = url.pathname === '/mcp' ? await ownerFromBearer(request, oauth) : null;
         if (!owner) return unauthorizedMcp(url.origin);
-        return await handleMcp(request, { store: songStore(env.DB, owner) });
+        return await handleMcp(request, {
+          store: songStore(env.DB, owner),
+          exportAudio: (song, opts) => renderAudio(env, url.origin, song, opts),
+          exportStatus: (jobId) => exportStatus(env, url.origin, jobId),
+        });
       }
       if (url.pathname.startsWith('/.well-known/')) return new Response(null, { status: 404 });
       if (url.pathname.startsWith('/sounds/')) {

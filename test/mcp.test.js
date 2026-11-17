@@ -50,14 +50,14 @@ function guideExample() {
 }
 
 describe('MCP', () => {
-  it('つなぐ、道具の一覧(10個)、知らない呼び方', async () => {
+  it('つなぐ、道具の一覧(12個)、知らない呼び方', async () => {
     const { rpc } = client();
     const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } });
     expect(init.result.protocolVersion).toBe('2025-06-18');
     expect(init.result.capabilities.tools).toBeDefined();
     const list = await rpc('tools/list');
     expect(list.result.tools.map((/** @type {any} */ t) => t.name)).toEqual([
-      'get_format_guide', 'list_songs', 'get_song', 'create_song', 'generate_alternatives', 'replace_section', 'update_arrangement', 'set_lyrics', 'update_song_settings', 'export_midi',
+      'get_format_guide', 'list_songs', 'get_song', 'create_song', 'generate_alternatives', 'replace_section', 'update_arrangement', 'set_lyrics', 'update_song_settings', 'export_audio', 'get_export', 'export_midi',
     ]);
     for (const t of list.result.tools) expect(t.inputSchema.type).toBe('object');
     expect((await rpc('nope')).error.code).toBe(-32601);

@@ -154,6 +154,7 @@ update_arrangement の \`set_item\` で、並びの1か所(itemId)だけの設�
   - styles だけ渡す → 伴奏の弾き方だけ変わる
   - parts で、あるパートの音符を直接書くこともできる(かんたん記法か音符の配列。start と length は1拍=480の数)
 - generate_alternatives: ルールで別案を3つ作る(自分で書かずに選択肢が欲しい時)。返ってきた seed と index を replace_section の alternative に渡すと採用できる
+- export_audio: 曲を音声ファイル(WAV)にして、ダウンロードできるURLを返す(1時間有効)。音は画面の書き出しと同じ。サーバーのブラウザで作るので20秒〜1分ほどかかる。25秒以内に終われば URL が返り、終わらなければ status: "running" と jobId が返るので、少し待って get_export に jobId を渡して受け取る。歌声は入らない(楽器の演奏だけ)。曲を作ったら、最後にこれでURLを利用者に渡すと、ブラウザを開かなくてもすぐ聴ける。短い時間に何度も呼ぶと、サーバーのブラウザの起動回数の上限に当たるので、続けて呼ばない
 - export_midi: 曲をMIDIファイルにして返す
 `;
 }

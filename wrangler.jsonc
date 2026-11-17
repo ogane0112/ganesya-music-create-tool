@@ -5,6 +5,9 @@
   "name": "ganesya-music",
   "main": "worker/index.js",
   "compatibility_date": "2026-11-01",
+  // 音声の書き出し(export_audio)は、サーバー側のヘッドレス Chrome(Browser Rendering)でアプリの /render ページを開いて作る
+  "compatibility_flags": ["nodejs_compat"],
+  "browser": { "binding": "BROWSER" },
   "workers_dev": true,
   "preview_urls": false,
   // 楽器の音源の置き場。設計では R2 だが、このアカウントでは R2 が有効でないため KV を使っている
